@@ -24,10 +24,12 @@ n1 (UDP source) /    \           /
 ## Run
 
 ```bash
+cd ns2
 ns netmind_scenario.tcl            # writes netmind.tr and netmind.nam
 nam netmind.nam                    # animation
-python3 parse_trace.py netmind.tr  # per-second metrics, saved to netmind_metrics.csv
-python3 parse_trace.py netmind.tr --window 0.5
+cd ..
+python -m netmind ns2 ns2/netmind.tr          # full analysis, saved for the dashboard and Copilot
+python ns2/parse_trace.py ns2/netmind.tr      # quick per-second table only
 ```
 
 ## Parser output
@@ -38,5 +40,5 @@ Delay for a packet is the time it reaches the destination node (`r` event) minus
 
 ## Status
 
-- `parse_trace.py`: tested on a sample trace in NS2 format.
+- Trace analysis (`netmind/capture/ns2.py`): tested on `tests/data/sample_ns2.tr`, a trace in exact NS2 format produced by `tests/make_ns2_sample.py`.
 - `netmind_scenario.tcl`: written in standard ns-2 syntax, not yet run on a real NS2 install. Run it once and record the result in `docs/PROGRESS.md`.

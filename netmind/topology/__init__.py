@@ -1,6 +1,12 @@
 """M5 Topology and Routing
 
-Build a NetworkX graph of observed hosts with latency or hop-count weights; shortest paths with Dijkstra.
+Graph of observed hosts (NetworkX) with latency and hop-count weights; shortest
+paths with Dijkstra; Link State and Distance Vector routing-table simulation.
 
-Owner: Hardik. Phase: 3. Status: not started.
+Owner: Hardik. Phase: 3.
 """
+from .graph import (build_graph, shortest_path, link_state_tables, distance_vector_tables,
+                    edges_frame, nodes_frame, graph_from_frames)
+
+__all__ = ["build_graph", "shortest_path", "link_state_tables", "distance_vector_tables",
+           "edges_frame", "nodes_frame", "graph_from_frames"]

@@ -1,6 +1,10 @@
 """M6 Network State Database
 
-SQLite storage for traffic statistics, metrics, anomalies and topology, with history.
+SQLite storage for runs, per-window metrics, anomalies, topology, flows and
+protocol statistics.
 
-Owner: Hardik. Phase: 1-3. Status: not started.
+Owner: Hardik. Phase: 1-3.
 """
+from .db import NetMindDB, DEFAULT_DB
+
+__all__ = ["NetMindDB", "DEFAULT_DB"]

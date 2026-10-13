@@ -1,6 +1,10 @@
 """M9 Dashboard
 
-Streamlit dashboard: metrics, traffic graphs, protocol distribution, anomalies, topology and Copilot chat.
+Streamlit dashboard (app.py): headline metrics, traffic/latency/loss/anomaly
+charts with incidents shaded, incident cards, protocol distribution, Copilot
+chat, topology with Dijkstra path and LS/DV routing tables, raw data.
 
-Owner: Hardik (lead). Phase: 7. Status: not started.
+Run: python -m netmind dashboard
+
+Owner: Hardik (lead). Phase: 7.
 """

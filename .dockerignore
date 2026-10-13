@@ -1,0 +1,8 @@
+.venv
+venv
+data
+__pycache__
+.git
+*.pcap
+ns2/*.tr
+ns2/*.nam
