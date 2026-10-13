@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+
+# Secrets
+.env
+
+# Data and generated output
+data/*
+!data/.gitkeep
+*.db
+*.sqlite
+*.pcap
+*.pcapng
+
+# NS2 output (regenerate with: ns netmind_scenario.tcl)
+ns2/*.tr
+ns2/*.nam
+ns2/*.csv
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
