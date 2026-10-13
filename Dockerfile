@@ -12,4 +12,4 @@ COPY . .
 RUN python -m netmind demo --save-pcap ""
 EXPOSE 8501 8000
 ENV ANTHROPIC_API_KEY=""
-CMD ["python", "-m", "streamlit", "run", "netmind/dashboard/app.py", "--server.address=0.0.0.0", "--server.port=8501"]
+CMD ["python", "-m", "streamlit", "run", "netmind/dashboard/app.py", "--server.address=0.0.0.0", "--server.port=8501", "--server.headless=true"]
