@@ -11,8 +11,12 @@ from plotly.subplots import make_subplots
 
 BLUE, ORANGE, AQUA = "#2a78d6", "#eb6834", "#1baf7a"   # validated categorical slots 1-3
 RED = "#d03b3b"                                          # status: critical (incidents only)
-INK, INK2, MUTED, GRID, AXIS = "#14212b", "#4a5863", "#7d8a94", "#e3e8ec", "#c5ced5"
-SURFACE = "#ffffff"
+# Theme-neutral greys: readable on the light and the dark theme. Text colours are left unset so
+# Streamlit's chart theme supplies the right one for the theme the viewer picked.
+MUTED, GRID, AXIS = "#8794a0", "rgba(128,128,128,0.20)", "rgba(128,128,128,0.45)"
+TEAL = "#17a2ac"                                         # highlighted route
+CLEAR = "rgba(0,0,0,0)"
+OUTLINE = "rgba(255,255,255,0.9)"
 FONT = "IBM Plex Sans, Segoe UI, system-ui, sans-serif"
 KIND_COLOURS = {"local": BLUE, "gateway": ORANGE, "remote": AQUA, "ns2-node": BLUE}
 KIND_NAMES = {"local": "Local host", "gateway": "Gateway", "remote": "Remote server",
@@ -20,21 +24,20 @@ KIND_NAMES = {"local": "Local host", "gateway": "Gateway", "remote": "Remote ser
 
 
 def style(fig: go.Figure, height: int, legend: bool = False) -> go.Figure:
-    fig.update_layout(height=height, margin=dict(l=8, r=8, t=28, b=8), plot_bgcolor=SURFACE,
-                      paper_bgcolor=SURFACE, font=dict(family=FONT, color=INK2, size=12),
-                      hoverlabel=dict(bgcolor="white", font=dict(family=FONT, color=INK)),
+    fig.update_layout(height=height, margin=dict(l=8, r=8, t=28, b=8), plot_bgcolor=CLEAR,
+                      paper_bgcolor=CLEAR, font=dict(family=FONT, size=12),
+                      hoverlabel=dict(font=dict(family=FONT)),
                       showlegend=legend, hovermode="x unified",
                       legend=dict(orientation="h", y=1.08, x=0, font=dict(size=12)))
-    fig.update_xaxes(showgrid=False, linecolor=AXIS, tickcolor=AXIS, tickfont_color=MUTED,
-                     zeroline=False)
-    fig.update_yaxes(gridcolor=GRID, zeroline=False, linecolor=AXIS, tickfont_color=MUTED)
+    fig.update_xaxes(showgrid=False, linecolor=AXIS, tickcolor=AXIS, zeroline=False)
+    fig.update_yaxes(gridcolor=GRID, zeroline=False, linecolor=AXIS)
     return fig
 
 
 def _bands(fig, incidents, row=None, labels=True):
     for e in incidents:
         kw = dict(row=row, col=1) if row else {}
-        fig.add_vrect(x0=e["start_t"], x1=e["end_t"], fillcolor=RED, opacity=0.09, line_width=0,
+        fig.add_vrect(x0=e["start_t"], x1=e["end_t"], fillcolor=RED, opacity=0.13, line_width=0,
                       layer="below", **kw)
         if labels:
             fig.add_annotation(x=(e["start_t"] + e["end_t"]) / 2, y=1.0, yref="paper",
@@ -62,10 +65,10 @@ def metric_panels(metrics: pd.DataFrame, incidents: list[dict], baseline: dict,
     panels = [(c, n) for c, n in panels if c in metrics.columns and metrics[c].notna().any()]
     if not panels:
         return style(go.Figure(), 120)
-    fig = make_subplots(rows=len(panels), cols=1, shared_xaxes=True, vertical_spacing=0.07,
+    fig = make_subplots(rows=len(panels), cols=1, shared_xaxes=True, vertical_spacing=0.16 if len(panels) <= 2 else 0.07,
                         subplot_titles=[n for _, n in panels])
     for a in fig.layout.annotations:  # panel titles
-        a.font = dict(size=12, color=INK2, family=FONT)
+        a.font = dict(size=12, family=FONT)
         a.x, a.xanchor = 0, "left"
     for i, (c, n) in enumerate(panels, 1):
         fig.add_trace(go.Scatter(x=metrics["t"], y=metrics[c], mode="lines", name=n,
@@ -92,7 +95,7 @@ def anomaly_chart(scores: pd.DataFrame, threshold: float | None, incidents: list
         flagged = scores[scores["is_anomaly"].astype(bool)]
         fig.add_trace(go.Scatter(x=flagged["t"], y=flagged["anomaly_score"], mode="markers",
                                  name="Flagged window",
-                                 marker=dict(color=RED, size=9, line=dict(color=SURFACE, width=2)),
+                                 marker=dict(color=RED, size=9, line=dict(color=OUTLINE, width=2)),
                                  hovertemplate="flagged, score %{y:.2f}<extra></extra>"))
         if threshold:
             fig.add_hline(y=threshold, line=dict(color=MUTED, width=1, dash="dash"),
@@ -106,13 +109,13 @@ def anomaly_chart(scores: pd.DataFrame, threshold: float | None, incidents: list
 
 def hbars(labels, values, text=None, height=None, colour=BLUE, xtitle="") -> go.Figure:
     fig = go.Figure(go.Bar(x=values, y=labels, orientation="h", marker=dict(color=colour),
-                           text=text, textposition="outside", textfont=dict(color=INK2, size=11),
+                           text=text, textposition="outside", textfont=dict(size=11),
                            cliponaxis=False, hovertemplate="%{y}: %{x:,}<extra></extra>"))
     style(fig, height or (50 + 34 * len(labels)))
     fig.update_layout(hovermode="closest", margin=dict(l=8, r=40, t=10, b=8))
     fig.update_xaxes(title_text=xtitle, title_font=dict(size=11, color=MUTED), showgrid=True,
                      gridcolor=GRID)
-    fig.update_yaxes(showgrid=False, tickfont=dict(color=INK2, size=12))
+    fig.update_yaxes(showgrid=False, tickfont=dict(size=12))
     return fig
 
 
@@ -142,7 +145,7 @@ def zoom_chart(metrics: pd.DataFrame, incident: dict, col: str, name: str,
                       annotation_font=dict(size=10, color=MUTED))
     _bands(fig, [incident], labels=False)
     style(fig, 200)
-    fig.update_layout(title=dict(text=name, font=dict(size=12, color=INK2), x=0, y=0.98))
+    fig.update_layout(title=dict(text=name, font=dict(size=12), x=0, y=0.98))
     return fig
 
 
@@ -170,7 +173,7 @@ def compare_chart(m1: pd.DataFrame, m2: pd.DataFrame, col: str, n1: str, n2: str
             fig.add_trace(go.Scatter(x=m["t"], y=m[col], mode="lines", name=n,
                                      line=dict(color=c, width=2)))
     style(fig, 240, legend=True)
-    fig.update_layout(title=dict(text=title, font=dict(size=12, color=INK2), x=0, y=0.98),
+    fig.update_layout(title=dict(text=title, font=dict(size=12), x=0, y=0.98),
                       margin=dict(l=8, r=8, t=56, b=8), legend=dict(y=1.18))
     fig.update_xaxes(title_text="time (s)", title_font=dict(size=11, color=MUTED))
     return fig
@@ -187,7 +190,7 @@ def topology_chart(G: nx.Graph, path_edges: set = frozenset(), failed: tuple | N
         w = 1 + 4 * math.sqrt(d.get("packets", 1) / max_pk)
         fig.add_trace(go.Scatter(
             x=[pos[a][0], pos[b][0]], y=[pos[a][1], pos[b][1]], mode="lines", hoverinfo="skip",
-            line=dict(color=RED if is_failed else (INK if on else AXIS),
+            line=dict(color=RED if is_failed else (TEAL if on else AXIS),
                       width=3.5 if on else w, dash="dot" if is_failed else "solid")))
     # invisible midpoint markers carry the link tooltips
     tips, mx, my = [], [], []
@@ -207,9 +210,9 @@ def topology_chart(G: nx.Graph, path_edges: set = frozenset(), failed: tuple | N
         fig.add_trace(go.Scatter(
             x=[pos[n][0] for n in ns], y=[pos[n][1] for n in ns], mode="markers+text",
             name=KIND_NAMES.get(kind, kind), text=ns, textposition="top center",
-            textfont=dict(color=INK2, size=11, family="IBM Plex Mono, Consolas, monospace"),
+            textfont=dict(size=11, family="IBM Plex Mono, Consolas, monospace"),
             marker=dict(size=[16 + 18 * math.sqrt(sent[n] / max_s) for n in ns],
-                        color=KIND_COLOURS.get(kind, BLUE), line=dict(color=SURFACE, width=2)),
+                        color=KIND_COLOURS.get(kind, BLUE), line=dict(color=OUTLINE, width=2)),
             hovertemplate="<b>%{text}</b><extra>" + KIND_NAMES.get(kind, kind) + "</extra>"))
     for t in fig.data[:-1]:
         t.showlegend = False

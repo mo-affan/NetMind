@@ -21,7 +21,7 @@ import streamlit as st
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))  # repo root
 
 from netmind.dashboard import charts, logic  # noqa: E402
-from netmind.dashboard.theme import BRAND, CSS  # noqa: E402
+from netmind.dashboard.theme import BRAND, CSS, THEME_HINT  # noqa: E402
 from netmind.pipeline import analyze_ns2, analyze_packets, get_state  # noqa: E402
 from netmind.storage import DEFAULT_DB, NetMindDB  # noqa: E402
 
@@ -214,6 +214,7 @@ with st.sidebar:
         c3.number_input("Seconds", min_value=10, max_value=300, value=30, step=10, key="cap_secs")
         c4.text_input("Interface", placeholder="default", key="cap_iface")
         stretch(st.button, "Capture and analyse", on_click=cb_capture, key="btn_capture")
+    st.markdown(THEME_HINT, unsafe_allow_html=True)
 
 if "flash" in ss:
     kind, msg = ss.pop("flash")
@@ -253,7 +254,7 @@ def header(title: str | None = None):
     tag = ('<span class="nm-tag synthetic">synthetic</span>' if is_synth else
            f'<span class="nm-tag">{esc(state["run"]["source"])}</span>')
     meta = (f'Run #{run_id} &nbsp; {summary.get("packets", 0):,} packets &nbsp; '
-            f'{summary.get("duration_s", 0):g} s &nbsp; {summary.get("hosts", 0)} hosts &nbsp; '
+            f'{logic.fmt_seconds(summary.get("duration_s"))} &nbsp; {summary.get("hosts", 0)} hosts &nbsp; '
             f'{summary.get("flows", 0):,} flows')
     st.markdown(
         f'<div class="nm-head"><div><div class="nm-title">{esc(title or state["run"]["name"])}{tag}</div>'

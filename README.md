@@ -101,7 +101,7 @@ or `powershell -ExecutionPolicy Bypass -File scripts\run_demo.ps1 -Dashboard`.
 | Compare runs | Two runs side by side (for example the demo vs normal-only traffic) |
 | Data & export | Markdown report and CSV downloads, raw tables, the detector's baseline, delete a run |
 
-New runs (synthetic demo with a chosen seed and length, normal-only traffic, an uploaded pcap or NS2 trace, or a live capture) are started from **Start a new run** in the sidebar.
+New runs (synthetic demo with a chosen seed and length, normal-only traffic, an uploaded pcap or NS2 trace, or a live capture) are started from **Start a new run** in the sidebar. Light and dark mode: the ⋮ menu at the top right, then **Settings** (needs Streamlit 1.51 or newer).
 
 The demo's traffic is **generated, not captured**: 180 s of normal browsing, DNS and pings from three hosts, with congestion at 70-100 s, a port scan at 120-128 s and a ping flood at 150-158 s. It is deterministic (seed 7), takes a few seconds, and every run is stored as a new run in `data\netmind.db`.
 

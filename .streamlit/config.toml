@@ -1,10 +1,19 @@
+# Light and dark themes (Streamlit 1.51+). Viewers switch between them in the menu at the top
+# right (⋮ > Settings); both themes are defined below.
 [theme]
-base = "light"
-primaryColor = "#0b6e78"
-backgroundColor = "#f4f6f7"
-secondaryBackgroundColor = "#e9eef1"
-textColor = "#14212b"
 font = "sans serif"
+
+[theme.light]
+primaryColor = "#0b7e88"
+backgroundColor = "#ffffff"
+secondaryBackgroundColor = "#eef3f5"
+textColor = "#14212b"
+
+[theme.dark]
+primaryColor = "#17a2ac"
+backgroundColor = "#0f1519"
+secondaryBackgroundColor = "#19232a"
+textColor = "#e6edf1"
 
 [server]
 # headless avoids Streamlit's first-run email prompt in the terminal;

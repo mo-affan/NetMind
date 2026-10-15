@@ -38,11 +38,19 @@ def normal_share(scores: pd.DataFrame) -> float | None:
     return round(100 * (1 - scores["is_anomaly"].astype(bool).mean()), 1)
 
 
+def fmt_seconds(s) -> str:
+    """179.991 -> "180 s", 7.25 -> "7.3 s" (whole seconds once the run is longer than 10 s)."""
+    v = _num(s)
+    if v is None:
+        return "? s"
+    return f"{v:.0f} s" if abs(v) >= 10 else f"{v:.1f}".rstrip("0").rstrip(".") + " s"
+
+
 def verdict(state: dict, duration_s: float | None) -> tuple[str, str]:
     """Headline sentence and tone ("bad", "ok", "info") for the top of the page."""
     status = state.get("anomaly_status") or {}
     n = len(state.get("incidents", []))
-    span = f" in {duration_s:g} s" if duration_s else ""
+    span = f" in {fmt_seconds(duration_s)}" if duration_s else ""
     if status.get("state") == "insufficient_data":
         return "Not enough traffic to judge yet", "info"
     if n == 0:

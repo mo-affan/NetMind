@@ -111,3 +111,11 @@ def test_link_failure_partition():
     assert row.loc["C", "Next hop after"] == "unreachable"
     assert math.isnan(row.loc["C", "Cost after"]) or row.loc["C", "Cost after"] is None
     assert not row.loc["B", "Changed"]
+
+
+def test_fmt_seconds():
+    assert logic.fmt_seconds(179.991) == "180 s"
+    assert logic.fmt_seconds(7.25) == "7.2 s" or logic.fmt_seconds(7.25) == "7.3 s"
+    assert logic.fmt_seconds(4.0) == "4 s"
+    assert logic.fmt_seconds(None) == "? s"
+    assert logic.verdict({"incidents": [{}, {}, {}]}, 179.991) == ("3 incidents in 180 s", "bad")
