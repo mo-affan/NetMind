@@ -1,22 +1,14 @@
-# Capture, analysis, topology, anomaly detection
-scapy>=2.5
-numpy
-pandas
-networkx
-scikit-learn
-joblib
-
-# API, dashboard
-fastapi
-uvicorn
-streamlit>=1.32
-plotly
-
-# Tests
-pytest
-httpx
-
-# Optional upgrades (NetMind works without them):
-#   sentence-transformers  semantic embeddings for RAG instead of TF-IDF
-#   faiss-cpu              FAISS vector index instead of NumPy search
-# Install with: pip install sentence-transformers faiss-cpu
+# NetMind core: everything needed for the synthetic demo, NS2 trace analysis,
+# the dashboard and the API. No internet, admin rights, NS2 or API key needed to run the demo.
+#
+# Tested in development (Linux, Python 3.13): numpy 2.5.3, pandas 3.0.5, scikit-learn 1.9.1,
+# networkx 3.6.1, joblib 1.6.0. All of these publish wheels for Python 3.14.
+numpy>=2.0
+pandas>=2.2
+scikit-learn>=1.5
+joblib>=1.3
+networkx>=3.2
+plotly>=5.20
+streamlit>=1.40   # Python 3.14 needs a recent release; the dashboard supports old and new width APIs
+fastapi>=0.110
+uvicorn>=0.29

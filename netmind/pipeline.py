@@ -12,14 +12,28 @@ from pathlib import Path
 import pandas as pd
 
 from netmind.analyzer import flows, protocol_distribution, summary, top_talkers
-from netmind.anomaly import AnomalyDetector, detect, episodes, window_features
+from netmind.anomaly import (MIN_TRAIN_WINDOWS, AnomalyDetector, InsufficientDataError, detect,
+                             episodes, window_features)
 from netmind.capture import ns2 as ns2src
 from netmind.performance import overall, rtt_samples, window_metrics
 from netmind.storage import NetMindDB
 from netmind.topology import build_graph, edges_frame, nodes_frame
 
-MODELS_DIR = Path("data") / "models"
 NS2_FEATURES = ["pps", "throughput_mbps", "latency_ms", "jitter_ms", "loss_pct", "retransmissions"]
+# NS2 output is a controlled, repeatable simulation, so a shorter baseline is enough:
+# 4 windows of 0.5 s (the scenario has 5 normal windows, 0.5-3 s, before the UDP burst).
+NS2_MIN_TRAIN_WINDOWS = 4
+
+
+def _no_detection(feats: pd.DataFrame, reason: str,
+                  min_windows: int = MIN_TRAIN_WINDOWS) -> tuple[pd.DataFrame, dict]:
+    """Scores table for a run where detection was skipped: no score, nothing flagged."""
+    scores = feats[[c for c in ("t", "window_start") if c in feats.columns]].copy()
+    scores["anomaly_score"] = float("nan")
+    scores["max_deviation"] = float("nan")
+    scores["is_anomaly"] = False
+    scores["top_features"] = "[]"
+    return scores, {"state": "insufficient_data", "reason": reason, "min_windows": min_windows}
 
 
 def _save_common(db, run_id, metrics, scores, incidents, G, extra_summary):
@@ -45,13 +59,21 @@ def analyze_packets(df: pd.DataFrame, name: str, source: str = "pcap", db: NetMi
     The anomaly model is trained on the first `train_until` seconds (default: first 30%
     of the capture), which should be normal traffic, unless a trained `model` is given.
     """
+    if df is None or df.empty:
+        raise ValueError("no IP packets to analyse (the capture or file is empty)")
     db = db or NetMindDB()
     summ = summary(df)
     run_id = db.new_run(name, source, summ)
     metrics = window_metrics(df, window, link_capacity_mbps)
     feats = window_features(df, window, metrics)
-    scores, det = detect(feats, train_until=train_until, model=model)
-    inc = episodes(scores, df, window)
+    try:
+        scores, det = detect(feats, train_until=train_until, model=model)
+        status = {"state": "ok", "train_windows": det.baseline["train_windows"]}
+        inc = episodes(scores, df, window)
+    except InsufficientDataError as e:
+        det = None
+        scores, status = _no_detection(feats, str(e))
+        inc = episodes(scores, df, window)
     rtt = rtt_samples(df)
     G = build_graph(df, rtt)
     db.save("protocols", run_id, protocol_distribution(df))
@@ -59,13 +81,16 @@ def analyze_packets(df: pd.DataFrame, name: str, source: str = "pcap", db: NetMi
     db.save("rtt", run_id, rtt)
     _save_common(db, run_id, metrics, scores, inc, G, {
         "overall": overall(df, link_capacity_mbps), "window_s": window,
-        "baseline": {k: round(v, 3) for k, v in det.baseline["median"].items()},
-        "threshold": round(det.threshold, 3), "train_windows": det.baseline["train_windows"],
+        "anomaly_status": status,
+        "baseline": {k: round(v, 3) for k, v in det.baseline["median"].items()} if det else {},
+        "threshold": round(det.threshold, 3) if det else None,
+        "train_windows": det.baseline["train_windows"] if det else 0,
         "top_talkers": top_talkers(df).to_dict("records"), "incident_count": int(len(inc)),
         "link_capacity_mbps": link_capacity_mbps})
-    if save_model:
-        MODELS_DIR.mkdir(parents=True, exist_ok=True)
-        det.save(MODELS_DIR / f"run_{run_id}.joblib")
+    if save_model and det is not None:  # saved next to the database it belongs to
+        models = Path(db.path).parent / "models"
+        models.mkdir(parents=True, exist_ok=True)
+        det.save(models / f"run_{run_id}.joblib")
     return run_id
 
 
@@ -90,11 +115,18 @@ def analyze_ns2(trace: str, name: str | None = None, db: NetMindDB | None = None
     metrics = ns2src.trace_metrics(ev, window)
     metrics = metrics[metrics["packets"] > 0].reset_index(drop=True)
     base = metrics[metrics["t"] < train_until]
-    if len(base) < 3:  # too little before train_until: fall back to the first 30% of windows
-        base = metrics.iloc[:max(3, int(len(metrics) * 0.3))]
-    det = AnomalyDetector(NS2_FEATURES)
-    det.fit(base)
-    scores = det.score(metrics)
+    if len(base) < NS2_MIN_TRAIN_WINDOWS:  # too little before train_until: first 30% of windows
+        base = metrics.iloc[:max(NS2_MIN_TRAIN_WINDOWS, int(len(metrics) * 0.3))]
+    if len(base) >= NS2_MIN_TRAIN_WINDOWS:
+        det = AnomalyDetector(NS2_FEATURES)
+        det.fit(base)
+        scores = det.score(metrics)
+        status = {"state": "ok", "train_windows": int(len(base))}
+    else:
+        det = None
+        scores, status = _no_detection(metrics, f"only {len(metrics)} window(s) of {window:g} s in "
+                                       f"the trace; at least {NS2_MIN_TRAIN_WINDOWS} are needed",
+                                       NS2_MIN_TRAIN_WINDOWS)
     # trace times and window times both start at 0, so records are aligned to 0 as well
     inc = episodes(scores, recs.assign(ts=recs["ts"] - recs["ts"].min()), window, gap=0)
     routes = ns2src.path_changes(ev)
@@ -126,9 +158,10 @@ def analyze_ns2(trace: str, name: str | None = None, db: NetMindDB | None = None
                     "retransmissions": int(pk["retransmission"].sum())},
         "window_s": window, "routes": routes.to_dict("records"),
         "link_events": link_events.to_dict("records"),
-        "ns2_flows": flows_ns2.to_dict("records"),
-        "baseline": {k: round(v, 3) for k, v in det.baseline["median"].items()},
-        "threshold": round(det.threshold, 3), "train_windows": det.baseline["train_windows"],
+        "ns2_flows": flows_ns2.to_dict("records"), "anomaly_status": status,
+        "baseline": {k: round(v, 3) for k, v in det.baseline["median"].items()} if det else {},
+        "threshold": round(det.threshold, 3) if det else None,
+        "train_windows": det.baseline["train_windows"] if det else 0,
         "incident_count": int(len(inc))})
     return run_id
 
@@ -156,4 +189,5 @@ def get_state(db: NetMindDB, run_id: int | None = None) -> dict:
     return {"run": {"id": run["id"], "name": run["name"], "source": run["source"]},
             "summary": traffic, "overall": s.get("overall", {}), "baseline": s.get("baseline", {}),
             "latest_window": latest, "incidents": incidents, "routes": s.get("routes", []),
+            "anomaly_status": s.get("anomaly_status", {"state": "ok"}),
             "top_talkers": s.get("top_talkers", [])}

@@ -26,7 +26,13 @@ A second check runs next to the forest: how far each feature is from its normal 
 in units of normal spread (a robust z-score). Isolation Forest only splits on values it
 saw during training, so if loss was always 0 in normal traffic it can never isolate a
 window with loss. The deviation check catches that case, and also tells the Copilot
-which features made the window unusual. A window is anomalous if either check fires.
+which features made the window unusual.
+
+A window is anomalous when its deviation is >= 6, or when the forest score is above the
+threshold AND some feature deviates by >= 4. The threshold is the 99th percentile of the
+baseline's own scores + 0.03 + 0.25/sqrt(baseline windows), so short baselines are stricter.
+Tested on synthetic traffic (10 seeds): all injected events found; under 0.5% of normal
+windows flagged.
 """
 from __future__ import annotations
 
@@ -100,7 +106,7 @@ class AnomalyDetector:
 
     def __init__(self, features: list[str] | None = None, n_estimators: int = 200,
                  contamination: str | float = "auto", random_state: int = 42,
-                 z_threshold: float = 6.0):
+                 z_threshold: float = 6.0, z_support: float = 4.0):
         self.features = list(features or FEATURES)
         self.model = IsolationForest(n_estimators=n_estimators, contamination=contamination,
                                      random_state=random_state)
@@ -108,6 +114,7 @@ class AnomalyDetector:
         self.baseline: dict = {}
         self.threshold = 0.5
         self.z_threshold = z_threshold
+        self.z_support = z_support
 
     # log1p tames heavy-tailed counts (a flood has 100x the normal packet rate)
     @staticmethod
@@ -121,8 +128,10 @@ class AnomalyDetector:
         Z = self.scaler.fit_transform(self._tf(X))
         self.model.fit(Z)
         train_scores = -self.model.score_samples(Z)
-        # a window must score clearly above anything seen in normal traffic
-        self.threshold = float(max(0.5, np.quantile(train_scores, 0.99) + 0.03))
+        # A window must score clearly above anything seen in normal traffic. The margin grows
+        # when the baseline is short, because a forest built on a few windows is noisy.
+        self.threshold = float(max(0.5, np.quantile(train_scores, 0.99) + 0.03
+                                   + 0.25 / np.sqrt(len(X))))
         spread = (X - med).abs().median() * 1.4826  # MAD, scaled to match a std-dev
         floor = pd.Series({f: max(MIN_SPREAD.get(f, 1e-3), 0.1 * abs(med[f])) for f in X.columns})
         self.baseline = {"median": med.to_dict(),
@@ -144,7 +153,10 @@ class AnomalyDetector:
         z = self.deviations(X).abs().max(axis=1).to_numpy()
         out["anomaly_score"] = np.round(s, 4)
         out["max_deviation"] = np.round(z, 1)
-        out["is_anomaly"] = (s > self.threshold) | (z >= self.z_threshold)
+        # Flag a window when the deviation is large on its own, or when the forest finds it
+        # unusual AND at least one feature is clearly away from normal (>= z_support). The
+        # second condition stops the forest flagging windows that are only mildly different.
+        out["is_anomaly"] = ((s > self.threshold) & (z >= self.z_support)) | (z >= self.z_threshold)
         out["top_features"] = [json.dumps(self.explain_row(X.iloc[i]))
                                for i in range(len(X))]
         return out
@@ -169,6 +181,24 @@ class AnomalyDetector:
         return joblib.load(path)
 
 
+# A baseline needs at least this many windows (16 s of traffic with 2 s windows). With fewer,
+# "normal" cannot be learned, so detection is skipped instead of reporting "no anomalies".
+MIN_TRAIN_WINDOWS = 8
+
+
+class InsufficientDataError(ValueError):
+    """Not enough traffic to learn a normal baseline."""
+
+
+def baseline(feats: pd.DataFrame, train_until: float | None = None,
+             train_fraction: float = 0.3) -> pd.DataFrame:
+    """The windows used as the normal baseline: the first `train_until` seconds, or by
+    default the first 30% of windows (at least MIN_TRAIN_WINDOWS)."""
+    if train_until is None:
+        return feats.iloc[:max(MIN_TRAIN_WINDOWS, int(len(feats) * train_fraction))]
+    return feats[feats["t"] < train_until]
+
+
 def detect(feats: pd.DataFrame, train_until: float | None = None,
            train_fraction: float = 0.3, features: list[str] | None = None,
            model: AnomalyDetector | None = None) -> tuple[pd.DataFrame, AnomalyDetector]:
@@ -176,12 +206,13 @@ def detect(feats: pd.DataFrame, train_until: float | None = None,
     then score every window.
 
     train_until: seconds from the start of the capture to use as normal baseline.
+    Raises InsufficientDataError when the baseline has fewer than MIN_TRAIN_WINDOWS windows.
     """
     if model is None:
-        if train_until is None:
-            n = max(5, int(len(feats) * train_fraction))
-            base = feats.iloc[:n]
-        else:
-            base = feats[feats["t"] < train_until]
+        base = baseline(feats, train_until, train_fraction)
+        if len(base) < MIN_TRAIN_WINDOWS:
+            raise InsufficientDataError(
+                f"only {len(base)} time window(s) available for the normal baseline; at least "
+                f"{MIN_TRAIN_WINDOWS} are needed (capture longer, e.g. 60 s or more)")
         model = AnomalyDetector(features).fit(base)
     return model.score(feats), model

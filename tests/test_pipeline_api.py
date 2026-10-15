@@ -83,3 +83,17 @@ def test_ns2_cli_needs_no_ns2_install(tmp_path):
     assert out.returncode == 0, out.stderr
     assert "Network congestion" in out.stdout and "Link failure and rerouting" in out.stdout
     assert shutil.which("ns", path=env["PATH"]) is None
+
+
+def test_api_health(tmp_path, monkeypatch):
+    pytest.importorskip("fastapi")
+    pytest.importorskip("httpx")
+    from fastapi.testclient import TestClient
+    import netmind.api as api
+    from netmind.storage import NetMindDB
+    d = NetMindDB(tmp_path / "h.db")
+    monkeypatch.setattr(api, "_db", d)
+    c = TestClient(api.app)
+    h = c.get("/health").json()
+    assert h["status"] == "ok" and h["runs"] == 0 and h["latest_run"] is None
+    assert c.post("/ask", json={"question": "hi"}).status_code == 404  # no runs yet

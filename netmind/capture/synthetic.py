@@ -32,15 +32,16 @@ EVENTS = [
 IP_H, TCP_H, UDP_H, ICMP_H = 20, 20, 8, 8
 
 
-def _event_at(t: float) -> str:
-    for start, end, name in EVENTS:
+def _event_at(t: float, events=None) -> str:
+    for start, end, name in (EVENTS if events is None else events):
         if start <= t < end:
             return name
     return "normal"
 
 
 class _Gen:
-    def __init__(self, seed: int):
+    def __init__(self, seed: int, events=None):
+        self.events = EVENTS if events is None else events
         self.r = random.Random(seed)
         self.recs: list[dict] = []
         self.ports = {c: 49152 for c in CLIENTS}
@@ -48,12 +49,12 @@ class _Gen:
     # --- helpers -------------------------------------------------------------
     def rtt(self, t: float, base: float, jitter: float) -> float:
         """Round-trip time in seconds; 4x larger and noisier during congestion."""
-        if _event_at(t) == "congestion":
+        if _event_at(t, self.events) == "congestion":
             base, jitter = base * 4, jitter * 4
         return max(0.0005, self.r.gauss(base, jitter))
 
     def loss(self, t: float, p_congested: float = 0.07) -> bool:
-        return _event_at(t) == "congestion" and self.r.random() < p_congested
+        return _event_at(t, self.events) == "congestion" and self.r.random() < p_congested
 
     def tcp(self, ts, src, dst, sport, dport, flags, seq, ack, payload=0):
         self.recs.append(dict(ts=ts, src=src, dst=dst, sport=sport, dport=dport, proto="TCP",
@@ -104,7 +105,7 @@ class _Gen:
                 self.tcp(ts + 0.2 + self.rtt(ts, 0.045, 0.006), server, client, port, sport,
                          "A", seq, c_isn + 1 + req, size)
             off += size
-            ts += 0.0012 * (3 if _event_at(ts) == "congestion" else 1) + self.r.random() * 0.0005
+            ts += 0.0012 * (3 if _event_at(ts, self.events) == "congestion" else 1) + self.r.random() * 0.0005
         ack_t = ts + 0.0005
         self.tcp(ack_t, client, server, sport, port, "A", c_isn + 1 + req, s_isn + 1 + off)
         fin = ack_t + self.r.uniform(0.05, 0.4)
@@ -122,9 +123,15 @@ class _Gen:
                               length=IP_H + ICMP_H + 56))
 
 
-def generate_scenario(duration: float = 180.0, seed: int = 7) -> tuple[list[dict], list[tuple]]:
-    """Return (records, events). Records are dicts in the netmind.capture.records format."""
-    g = _Gen(seed)
+def generate_scenario(duration: float = 180.0, seed: int = 7,
+                      events: list[tuple] | None = None) -> tuple[list[dict], list[tuple]]:
+    """Return (records, events). Records are dicts in the netmind.capture.records format.
+
+    events: (start_s, end_s, name) to inject, with names "congestion", "port_scan",
+    "ping_flood". Default: EVENTS (the demo). Pass [] for normal traffic only.
+    """
+    events = EVENTS if events is None else list(events)
+    g = _Gen(seed, events)
     servers = list(WEB_SERVERS)
     # normal browsing for each client: a DNS lookup then a web request, every ~1.5 s
     for ci, c in enumerate(CLIENTS):
@@ -140,17 +147,16 @@ def generate_scenario(duration: float = 180.0, seed: int = 7) -> tuple[list[dict
             g.ping(t + 0.11 * ci, c, GATEWAY, ident=100 + ci, seq=k)
     # port scan: SYN to ports 1..1000, target answers RST-ACK
     victim = CLIENTS[0]
-    start, end, _ = EVENTS[1]
-    for i, port in enumerate(range(1, 1001)):
-        t = start + i * (end - start) / 1000
-        isn = g.r.randrange(2**32)
-        g.tcp(t, ATTACKER, victim, 40000 + i % 50, port, "S", isn, 0)
-        g.tcp(t + 0.0008, victim, ATTACKER, port, 40000 + i % 50, "RA", 0, isn + 1)
-    # ping flood: 250 echo requests per second to the gateway
-    start, end, _ = EVENTS[2]
-    n = int((end - start) * 250)
-    for i in range(n):
-        g.ping(start + i / 250, ATTACKER, GATEWAY, ident=999, seq=i)
+    for start, end, name in events:
+        if name == "port_scan":
+            for i, port in enumerate(range(1, 1001)):
+                t = start + i * (end - start) / 1000
+                isn = g.r.randrange(2**32)
+                g.tcp(t, ATTACKER, victim, 40000 + i % 50, port, "S", isn, 0)
+                g.tcp(t + 0.0008, victim, ATTACKER, port, 40000 + i % 50, "RA", 0, isn + 1)
+        elif name == "ping_flood":  # 250 echo requests per second to the gateway
+            for i in range(int((end - start) * 250)):
+                g.ping(start + i / 250, ATTACKER, GATEWAY, ident=999, seq=i)
     recs = sorted((r for r in g.recs if r["ts"] < duration), key=lambda r: r["ts"])
     base = 1_760_000_000.0  # an absolute epoch so times look like real captures
     for r in recs:
@@ -160,8 +166,7 @@ def generate_scenario(duration: float = 180.0, seed: int = 7) -> tuple[list[dict
     for r in recs:
         if not r["app"]:
             r["app"] = guess_app(r["proto"], r.get("sport", 0), r.get("dport", 0))
-    events = [(base + s, base + e, name) for s, e, name in EVENTS if s < duration]
-    return recs, events
+    return recs, [(base + s, base + e, name) for s, e, name in events if s < duration]
 
 
 def to_pcap(records: list[dict], path: str) -> None:

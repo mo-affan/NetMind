@@ -7,7 +7,8 @@ Owner: Affan. Phase: 4.
 """
 from .episodes import episodes, classify, TYPES
 from .detector import (FEATURES, TRAFFIC_FEATURES, PERF_FEATURES, window_features,
-                       AnomalyDetector, detect)
+                       AnomalyDetector, detect, baseline,
+                       InsufficientDataError, MIN_TRAIN_WINDOWS)
 
 __all__ = ["episodes", "classify", "TYPES", "FEATURES", "TRAFFIC_FEATURES", "PERF_FEATURES", "window_features", "AnomalyDetector",
-           "detect"]
+           "detect", "baseline", "InsufficientDataError", "MIN_TRAIN_WINDOWS"]

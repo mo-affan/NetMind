@@ -4,11 +4,41 @@ Newest first.
 
 | Date | Phase | What was done | Who |
 | --- | --- | --- | --- |
+| 2026-10-15 | Repair | Diagnosed the "missing implementation" on the laptop (stale clone, see below). Hardened: empty/short captures, repo-anchored paths, optional-package errors, `/health`, synthetic labelling, Streamlit width API; fewer false alarms (stricter forest threshold, 16 s minimum baseline); split requirements; Windows setup/run scripts; CLI, edge-case, API and dashboard tests; README, Review 2 guide and demo script | Affan |
 | 2026-10-15 | NS2 | Reviewed and fixed the NS2 scenario and trace parser; consistent metric definitions; standard-library lab checker; lab execution guide. Status: implemented, validated on a synthetic sample, **not yet executed in NS2** | Affan |
 | 2026-10-13 | 1-8 | First full implementation: capture (Scapy live/pcap, NS2 traces, demo traffic), traffic analyzer, performance metrics, topology with Dijkstra/LS/DV, SQLite storage, Isolation Forest anomaly detection with incidents, RAG knowledge base, Copilot (Claude/Ollama/offline), pipeline, CLI, REST API, Streamlit dashboard, Docker, 32 tests | Affan |
 | 2026-10-13 | Setup | Repository created with module folders, NS2 scenario and trace parser, Review 1 documents | Affan |
 | 2026-10-08 | Review 1 | Presented proposal (9 slides). Faculty suggested adding NS2; added NS2 Simulation Module | Both |
 | 2026-10-07 | Proposal | Review 1 proposal document submitted | Both |
+
+## Current status (2026-10-15)
+
+### Why the laptop checkout looked empty
+
+The laptop clone (`C:\Users\moham\NetMind`) was made at 12:26 IST on 2026-10-13, after the first commit (`b1f6d55`, 12:19 IST) and before the implementation was pushed (`6b43ee7`, 12:49 IST). It was never fetched again, so it still had only the skeleton: `tests/.gitkeep`, `netmind/__init__.py` and `ns2/parse_trace.py`. `git status` said "up to date with origin/main" because that compares against the last *fetched* state, not GitHub. Fix: `git fetch origin` then `git merge --ff-only origin/main` (plus the repair commit below).
+
+### Verification
+
+Environment where checks were run: Linux sandbox, Python 3.13.16, numpy 2.5.3, pandas 3.0.5, scikit-learn 1.9.1, networkx 3.6.1, joblib 1.6.0. PyPI was blocked there, so pytest, FastAPI, Streamlit and Scapy could not be installed, and the test suite was run with a small stand-in runner that executes the same test functions and fixtures.
+
+| Check | Result |
+| --- | --- |
+| Test functions (63) | **57 passed, 0 failed, 6 skipped** (skipped: pcap round-trip needs Scapy; API and health need FastAPI; 3 dashboard tests need Streamlit) |
+| `python -m netmind --help`, `--version` | Passed |
+| `python -m netmind demo` on a clean database, and rerun | Passed: 13,511 synthetic packets, 3 incidents (congestion 70-100 s, port scan 120-128 s, flood 150-158 s), about 3.6 s; rerun adds run 2 with identical results |
+| `report`, `runs`, `ask` (offline), `routes` | Passed |
+| `ns2 tests/data/sample_ns2.tr`, `ns2/check_trace.py`, `ns2/parse_trace.py` | Passed: congestion 3-6 s and reroute via n4 at 7 s; 5/5 scenario checks |
+| Running from another folder; output through a cp1252 (Windows-style) console | Passed |
+| Empty / 1-packet / 3 s / 8 s captures | Passed: empty rejected with a clear error; short ones report "not enough traffic" instead of "no anomalies" |
+| False alarms, normal-only synthetic traffic, 20-180 s x 10 seeds | 3 flagged windows of about 1,350 (was 18 before this repair); detection of all injected events unchanged |
+| Real pytest | **Not run** (blocked: pytest not installable in the sandbox) |
+| Dashboard start (`python -m netmind dashboard`), dashboard AppTest | **Not run** (blocked: Streamlit not installable) |
+| API (`python -m netmind api`, TestClient tests) | **Not run** (blocked: FastAPI not installable) |
+| Pcap reading / live capture | **Not run** (blocked: Scapy not installable; live capture also needs admin rights) |
+| Python 3.14, Windows, PowerShell scripts | **Not run** (no Windows/PowerShell in the sandbox, and the laptop was not reachable). Scripts were reviewed by hand for Windows PowerShell 5.1 pitfalls |
+| NS2 TCL scenario | **Not executed** (no NS2; to be run in the college lab) |
+
+On the laptop, `scripts\setup_windows.ps1` runs the real pytest suite, including the tests skipped here. Record its result in this table.
 
 ## Review 1 documents
 

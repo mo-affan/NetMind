@@ -8,13 +8,18 @@ back in time.
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 import time
 from pathlib import Path
 
 import pandas as pd
 
-DEFAULT_DB = Path("data") / "netmind.db"
+# Paths are anchored to the repository, not the current folder, so commands behave the same
+# from any directory. NETMIND_DB overrides the database location.
+REPO_ROOT = Path(__file__).resolve().parents[2]
+DATA_DIR = REPO_ROOT / "data"
+DEFAULT_DB = Path(os.environ.get("NETMIND_DB", DATA_DIR / "netmind.db"))
 
 TABLES = ["metrics", "anomalies", "incidents", "nodes", "links", "flows", "protocols", "rtt"]
 

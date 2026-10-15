@@ -4,6 +4,7 @@ Every module's results are available over HTTP, so the dashboard or any other
 client can use them. Start it with:  python -m netmind api
 Interactive docs: http://127.0.0.1:8000/docs
 
+    GET  /health                    status, version, database path, number of runs
     GET  /runs                      saved runs
     GET  /runs/{id}                 summary, overall metrics, baseline
     GET  /runs/{id}/metrics         per-window performance metrics
@@ -54,7 +55,14 @@ def _check(run_id: int):
 
 @app.get("/")
 def root():
-    return {"name": "NetMind API", "docs": "/docs", "runs": len(db().runs())}
+    return {"name": "NetMind API", "docs": "/docs", "health": "/health", "runs": len(db().runs())}
+
+
+@app.get("/health")
+def health():
+    from netmind import __version__
+    return {"status": "ok", "version": __version__, "database": str(db().path),
+            "runs": int(len(db().runs())), "latest_run": db().latest_run_id()}
 
 
 @app.get("/runs")

@@ -1,0 +1,4 @@
+# Optional: live packet capture and reading .pcap files.
+# Live capture on Windows also needs Npcap (https://npcap.com) and an Administrator terminal.
+# The demo, NS2 analysis, dashboard and API work without this.
+scapy>=2.5

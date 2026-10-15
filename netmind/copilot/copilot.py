@@ -95,7 +95,11 @@ def state_to_text(state: dict) -> str:
     return "\n".join(lines)
 
 
-def incidents_to_text(incidents: list[dict]) -> str:
+def incidents_to_text(incidents: list[dict], status: dict | None = None) -> str:
+    if status and status.get("state") == "insufficient_data":
+        return ("Anomaly detection was NOT run: not enough traffic to learn a normal baseline ("
+                f"{status.get('reason')}). Do not claim the network is normal or abnormal "
+                "from anomaly results.")
     if not incidents:
         return "No anomalies detected: all windows look like normal traffic."
     out = []
@@ -111,7 +115,7 @@ def incidents_to_text(incidents: list[dict]) -> str:
 def build_prompt(question: str, state: dict, docs: list[dict]) -> str:
     knowledge = "\n\n".join(f"[{i}] {d['title']}\n{d['text']}" for i, d in enumerate(docs, 1))
     return (f"QUESTION: {question}\n\nNETWORK STATE:\n{state_to_text(state)}\n\n"
-            f"INCIDENTS:\n{incidents_to_text(state.get('incidents', []))}\n\n"
+            f"INCIDENTS:\n{incidents_to_text(state.get('incidents', []), state.get('anomaly_status'))}\n\n"
             f"KNOWLEDGE:\n{knowledge or '(none retrieved)'}")
 
 
@@ -260,9 +264,15 @@ def offline_answer(question: str, state: dict, docs: list[dict]) -> str:
                          "; ".join(f"{x['title'].lower()} at t={x['start_t']:g} s" for x in incidents) + ".")
         elif not incidents:
             o = state.get("overall", {})
-            parts.append("**No anomalies detected:** every time window looks like normal traffic. "
-                         f"Latency {o.get('latency_ms')} ms, loss {o.get('loss_pct')}%, "
-                         f"throughput {o.get('throughput_mbps')} Mbps.")
+            measured = (f"Latency {o.get('latency_ms')} ms, loss {o.get('loss_pct')}%, "
+                        f"throughput {o.get('throughput_mbps')} Mbps.")
+            status = state.get("anomaly_status") or {}
+            if status.get("state") == "insufficient_data":
+                parts.append("**Not enough traffic to judge:** anomaly detection needs a normal "
+                             f"baseline, and {status.get('reason')}. What was measured: " + measured)
+            else:
+                parts.append("**No anomalies detected:** every time window looks like normal "
+                             "traffic. " + measured)
         if docs:
             parts.append(f"**Background:** {_first_sentences(docs[0]['text'], 3)} [1]")
     elif docs and not relevant and not reroutes:

@@ -5,9 +5,12 @@ __pycache__/
 venv/
 *.egg-info/
 .pytest_cache/
+.coverage
+*.joblib
 
 # Secrets
 .env
+*.key
 
 # Data and generated output
 data/*
@@ -17,10 +20,14 @@ data/*
 *.pcap
 *.pcapng
 
-# NS2 output (regenerate with: ns netmind_scenario.tcl)
+# NS2 output (regenerate with: ns netmind_scenario.tcl). Lab evidence goes in ns2/results/.
 ns2/*.tr
 ns2/*.nam
 ns2/*.csv
+netmind_metrics.csv
+
+# Backups made by scripts/setup_windows.ps1 -Recreate
+.venv.bak-*/
 
 # Editors / OS
 .vscode/
