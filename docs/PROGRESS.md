@@ -4,6 +4,7 @@ Newest first.
 
 | Date | Phase | What was done | Who |
 | --- | --- | --- | --- |
+| 2026-10-15 | Dashboard | Redesigned the dashboard: new look (IBM Plex, teal theme), traffic-trace hero with incident bands, KPI cards with trends, Copilot panel on the Overview plus a full Copilot page, Incidents, Traffic explorer, Performance, link-failure simulator, run comparison, report/CSV export. Logic split into `dashboard/logic.py` with unit tests; AppTest tests for every page | Affan |
 | 2026-10-15 | Repair | Diagnosed the "missing implementation" on the laptop (stale clone, see below). Hardened: empty/short captures, repo-anchored paths, optional-package errors, `/health`, synthetic labelling, Streamlit width API; fewer false alarms (stricter forest threshold, 16 s minimum baseline); split requirements; Windows setup/run scripts; CLI, edge-case, API and dashboard tests; README, Review 2 guide and demo script | Affan |
 | 2026-10-15 | NS2 | Reviewed and fixed the NS2 scenario and trace parser; consistent metric definitions; standard-library lab checker; lab execution guide. Status: implemented, validated on a synthetic sample, **not yet executed in NS2** | Affan |
 | 2026-10-13 | 1-8 | First full implementation: capture (Scapy live/pcap, NS2 traces, demo traffic), traffic analyzer, performance metrics, topology with Dijkstra/LS/DV, SQLite storage, Isolation Forest anomaly detection with incidents, RAG knowledge base, Copilot (Claude/Ollama/offline), pipeline, CLI, REST API, Streamlit dashboard, Docker, 32 tests | Affan |

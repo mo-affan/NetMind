@@ -1,38 +1,42 @@
 """M9 NetMind Dashboard (Streamlit).
 
 Run:  python -m netmind dashboard      (or: streamlit run netmind/dashboard/app.py)
+
+Pages: Overview (with the Copilot panel), Incidents, Traffic, Performance, Topology & routing,
+Copilot, Compare runs, Data & export. The sidebar picks the run, the page, and starts new runs
+(synthetic demo, uploaded pcap / NS2 trace, live capture).
 """
 from __future__ import annotations
 
 import argparse
-import json
+import html
 import os
 import sys
 import tempfile
 from pathlib import Path
 
 import pandas as pd
-import plotly.graph_objects as go
 import streamlit as st
-from plotly.subplots import make_subplots
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))  # repo root
 
+from netmind.dashboard import charts, logic  # noqa: E402
+from netmind.dashboard.theme import BRAND, CSS  # noqa: E402
 from netmind.pipeline import analyze_ns2, analyze_packets, get_state  # noqa: E402
 from netmind.storage import DEFAULT_DB, NetMindDB  # noqa: E402
 
-# Colours: categorical slots 1-3 of the reference palette (validated colour-blind safe as a
-# set), reserved status red for anomalies, quiet ink and gridlines.
-BLUE, ORANGE, AQUA = "#2a78d6", "#eb6834", "#1baf7a"
-CRITICAL = "#d03b3b"
-INK, INK2, MUTED, GRID, AXIS = "#0b0b0b", "#52514e", "#898781", "#e1e0d9", "#c3c2b7"
-SURFACE = "#fcfcfb"
-KIND_COLOURS = {"local": BLUE, "gateway": ORANGE, "remote": AQUA, "ns2-node": BLUE}
-KIND_NAMES = {"local": "Local host", "gateway": "Gateway", "remote": "Remote server",
-              "ns2-node": "NS2 node"}
+PAGES = ["Overview", "Incidents", "Traffic", "Performance", "Topology & routing", "Copilot",
+         "Compare runs", "Data & export"]
+SUGGESTIONS = ["Why is the network slow?", "Is anyone attacking my network?",
+               "Did any link fail?", "What is jitter?"]
 
 st.set_page_config(page_title="NetMind", page_icon="🛰️", layout="wide")
+st.markdown(CSS, unsafe_allow_html=True)
 
+
+# ---------------------------------------------------------------------------
+# helpers
+# ---------------------------------------------------------------------------
 def _st_version() -> tuple[int, int]:
     try:
         major, minor = st.__version__.split(".")[:2]
@@ -41,8 +45,7 @@ def _st_version() -> tuple[int, int]:
         return (0, 0)
 
 
-# Streamlit 1.50 deprecated use_container_width (scheduled for removal) in favour of
-# width="stretch"; older versions only understand use_container_width.
+# Streamlit 1.50 deprecated use_container_width in favour of width="stretch".
 _NEW_WIDTH_API = _st_version() >= (1, 50)
 
 
@@ -53,13 +56,16 @@ def stretch(element, *args, **kwargs):
     return element(*args, use_container_width=True, **kwargs)
 
 
+def chart(fig, key=None):
+    stretch(st.plotly_chart, fig, config={"displaylogo": False}, key=key)
 
-def _args():
+
+def _db_path() -> str:
     # --db from `python -m netmind dashboard`, else NETMIND_DB, else data/netmind.db
     p = argparse.ArgumentParser(add_help=False)
     p.add_argument("--db", default=os.environ.get("NETMIND_DB", str(DEFAULT_DB)))
     a, _ = p.parse_known_args()
-    return a
+    return a.db
 
 
 @st.cache_resource
@@ -73,288 +79,559 @@ def get_copilot():
     return Copilot()
 
 
-def style(fig: go.Figure, height: int) -> go.Figure:
-    fig.update_layout(height=height, margin=dict(l=10, r=10, t=30, b=10), plot_bgcolor=SURFACE,
-                      paper_bgcolor=SURFACE, font=dict(family="system-ui, Segoe UI, sans-serif",
-                                                       color=INK2, size=12),
-                      hoverlabel=dict(bgcolor="white", font_color=INK), showlegend=False)
-    fig.update_xaxes(showgrid=False, linecolor=AXIS, tickcolor=AXIS, tickfont_color=MUTED)
-    fig.update_yaxes(gridcolor=GRID, zeroline=False, linecolor=AXIS, tickfont_color=MUTED)
-    return fig
+def esc(x) -> str:
+    return html.escape(str(x))
 
 
-def shade_incidents(fig, incidents, rows):
-    for e in incidents:
-        for r in rows:
-            fig.add_vrect(x0=e["start_t"], x1=e["end_t"], fillcolor=CRITICAL, opacity=0.08,
-                          line_width=0, row=r, col=1)
-        fig.add_annotation(x=(e["start_t"] + e["end_t"]) / 2, y=1.0, yref="paper", text=e["title"],
-                           showarrow=False, font=dict(size=11, color=CRITICAL), yanchor="bottom")
+db = get_db(_db_path())
+ss = st.session_state
+ss.setdefault("chats", {})
+ss.setdefault("prompts", {})
+ss.setdefault("page", PAGES[0])
+
+
+def flash(kind: str, msg: str):
+    ss["flash"] = (kind, msg)
 
 
 # ---------------------------------------------------------------------------
-db = get_db(_args().db)
+# callbacks (they run before the page is drawn, so they may change widget values)
+# ---------------------------------------------------------------------------
+def cb_ask(q: str):
+    ss["pending_q"] = q
+
+
+def cb_ask_and_open(q: str):
+    ss["pending_q"] = q
+    ss["page"] = "Copilot"
+
+
+def cb_overview_submit():
+    q = (ss.get("ov_q") or "").strip()
+    if q:
+        ss["pending_q"] = q
+    ss["ov_q"] = ""
+
+
+def _select_new_run(run_id: int, what: str):
+    ss["run_sel"] = run_id
+    ss["page"] = "Overview"
+    flash("success", f"{what} analysed and saved as run #{run_id}.")
+
+
+def cb_demo():
+    from netmind.capture.records import to_frame
+    from netmind.capture.synthetic import generate_scenario
+    events = None if ss.get("demo_events", True) else []
+    dur = float(ss.get("demo_duration", 180))
+    recs, _ = generate_scenario(duration=dur, seed=int(ss.get("demo_seed", 7)), events=events)
+    name = "Synthetic demo" if events is None else "Synthetic normal traffic"
+    try:
+        rid = analyze_packets(to_frame(recs), name, "synthetic", db, train_until=min(60.0, dur * 0.33))
+        _select_new_run(rid, name)
+    except ValueError as e:
+        flash("error", f"Could not analyse the demo: {e}")
+
+
+def cb_upload():
+    up = ss.get("upload")
+    if up is None:
+        flash("error", "Choose a .pcap, .pcapng or NS2 .tr file first.")
+        return
+    suffix = Path(up.name).suffix.lower()
+    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as f:
+        f.write(up.getvalue())
+    try:
+        if suffix == ".tr":
+            rid = analyze_ns2(f.name, up.name, db)
+        else:
+            from netmind.capture.sniffer import read_pcap
+            rid = analyze_packets(read_pcap(f.name), up.name, "pcap", db)
+        _select_new_run(rid, up.name)
+    except ImportError:
+        flash("error", "Reading pcap files needs Scapy: python -m pip install scapy")
+    except ValueError as e:
+        flash("error", f"Could not analyse {up.name}: {e}")
+
+
+def cb_capture():
+    try:
+        from netmind.capture.sniffer import live_capture
+    except ImportError:
+        flash("error", "Live capture needs Scapy: python -m pip install scapy")
+        return
+    try:
+        df = live_capture(ss.get("cap_iface") or None, timeout=int(ss.get("cap_secs", 30)))
+        rid = analyze_packets(df, "Live capture", "live", db)
+        _select_new_run(rid, "Live capture")
+    except ValueError as e:
+        flash("error", f"Capture finished but could not be analysed: {e}")
+    except Exception as e:  # permissions, missing Npcap, wrong interface
+        flash("error", f"Live capture failed ({type(e).__name__}: {e}). It needs Npcap and a "
+                       "terminal started as Administrator; you can also use "
+                       "`python -m netmind capture` and then pick the run here.")
+
+
+def cb_delete(run_id: int):
+    db.delete_run(run_id)
+    ss.pop("run_sel", None)
+    ss["chats"].pop(run_id, None)
+    flash("success", f"Run #{run_id} deleted.")
+
+
+# ---------------------------------------------------------------------------
+# sidebar
+# ---------------------------------------------------------------------------
+runs = db.runs()
+run_ids = [int(r) for r in runs["id"]] if not runs.empty else []
+if ss.get("run_sel") not in run_ids:
+    ss.pop("run_sel", None)
 
 with st.sidebar:
-    st.title("NetMind")
-    st.caption("AI-Powered Network Intelligence and LLM Network Copilot")
-    runs = db.runs()
-    if runs.empty:
-        st.info("No runs yet. Create one below.")
-        run_id = None
-    else:
-        labels = {int(r.id): f"#{r.id} {r.name} ({r.source})" for r in runs.itertuples()}
-        run_id = st.selectbox("Run", list(labels), format_func=labels.get)
+    st.markdown(BRAND, unsafe_allow_html=True)
+    if run_ids:
+        labels = {int(r.id): f"#{r.id}  {r.name}" for r in runs.itertuples()}
+        st.selectbox("Run", run_ids, format_func=labels.get, key="run_sel")
+        st.radio("Page", PAGES, key="page", label_visibility="collapsed")
+    with st.expander("Start a new run", expanded=not run_ids):
+        st.markdown("**Synthetic demo**")
+        st.toggle("Inject congestion, port scan and ping flood", value=True, key="demo_events")
+        c1, c2 = st.columns(2)
+        c1.number_input("Seed", min_value=0, max_value=9999, value=7, step=1, key="demo_seed")
+        c2.number_input("Seconds", min_value=60, max_value=600, value=180, step=20, key="demo_duration",
+                       help="At least 60 s: the first third is used to learn what normal looks like")
+        stretch(st.button, "Generate and analyse", on_click=cb_demo, type="primary", key="btn_demo")
+        st.divider()
+        st.markdown("**Analyse a file**")
+        st.file_uploader("pcap, pcapng or NS2 trace", type=["pcap", "pcapng", "cap", "tr"],
+                         key="upload")
+        stretch(st.button, "Analyse file", on_click=cb_upload, key="btn_upload")
+        st.divider()
+        st.markdown("**Live capture**")
+        st.caption("Needs Scapy, Npcap and a terminal run as Administrator. Only capture "
+                   "networks you are allowed to monitor.")
+        c3, c4 = st.columns(2)
+        c3.number_input("Seconds", min_value=10, max_value=300, value=30, step=10, key="cap_secs")
+        c4.text_input("Interface", placeholder="default", key="cap_iface")
+        stretch(st.button, "Capture and analyse", on_click=cb_capture, key="btn_capture")
 
-    st.subheader("New run")
-    if stretch(st.button, "Run synthetic demo",
-                 help="Generated (not captured) traffic with congestion, a port scan and a ping flood"):
-        from netmind.capture.records import to_frame
-        from netmind.capture.synthetic import generate_scenario
-        with st.spinner("Analysing synthetic demo traffic..."):
-            analyze_packets(to_frame(generate_scenario()[0]), "Synthetic demo", "synthetic", db,
-                            train_until=60)
-        st.rerun()
-    up = st.file_uploader("Upload a .pcap or NS2 .tr file", type=["pcap", "pcapng", "cap", "tr"])
-    if up is not None and stretch(st.button, "Analyse upload"):
-        suffix = Path(up.name).suffix
-        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as f:
-            f.write(up.getvalue())
-        try:
-            with st.spinner(f"Analysing {up.name}..."):
-                if suffix == ".tr":
-                    analyze_ns2(f.name, up.name, db)
-                else:
-                    from netmind.capture.sniffer import read_pcap
-                    analyze_packets(read_pcap(f.name), up.name, "pcap", db)
-            st.rerun()
-        except ImportError:
-            st.error("Reading pcap files needs Scapy: `python -m pip install scapy`")
-        except ValueError as e:
-            st.error(f"Could not analyse {up.name}: {e}")
-    st.caption("Live capture needs admin rights: `python -m netmind capture --duration 60`")
+if "flash" in ss:
+    kind, msg = ss.pop("flash")
+    (st.success if kind == "success" else st.error)(msg)
 
-if run_id is None:
-    st.header("Welcome to NetMind")
-    st.write("Click **Run synthetic demo** in the sidebar to analyse generated traffic with "
-             "three known problems, or upload a pcap / NS2 trace.")
+if not run_ids:
+    st.markdown('<div class="nm-title">Welcome to NetMind</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="nm-empty">There are no runs yet. Open <b>Start a new run</b> in the sidebar '
+        'and choose <b>Generate and analyse</b> to analyse synthetic traffic with three known '
+        'problems, or analyse a pcap or NS2 trace file.</div>', unsafe_allow_html=True)
     st.stop()
 
+run_id = int(ss["run_sel"]) if "run_sel" in ss else run_ids[0]
 state = get_state(db, run_id)
 metrics = db.load("metrics", run_id)
 scores = db.load("anomalies", run_id)
 incidents = state["incidents"]
-o, base = state["overall"], state["baseline"]
+summary = state.get("summary", {})
 is_ns2 = state["run"]["source"] == "ns2"
-status = state.get("anomaly_status") or {}
-if metrics.empty:
-    st.warning("This run has no per-window metrics to show.")
-    st.stop()
-# columns that are empty for a whole run are not stored; add them back as blanks
+is_synth = state["run"]["source"] in ("synthetic", "demo")
+summ_full = db.run(run_id)["summary"]
+
 for c in ("t", "pps", "latency_ms", "loss_pct", "throughput_mbps", "jitter_ms"):
     if c not in metrics.columns:
         metrics[c] = float("nan")
-for c, default in (("anomaly_score", float("nan")), ("max_deviation", float("nan")),
-                   ("is_anomaly", False)):
+for c, d in (("anomaly_score", float("nan")), ("max_deviation", float("nan")), ("is_anomaly", False)):
     if c not in scores.columns:
-        scores[c] = default
+        scores[c] = d
+if "t" not in scores.columns:
+    scores["t"] = metrics["t"]
 
 
-def fmt(v, unit, digits=1):
-    return "n/a" if v is None or pd.isna(v) else f"{v:.{digits}f} {unit}"
+def header(title: str | None = None):
+    """Run title, source tag and the verdict, at the top of every page."""
+    verdict, tone = logic.verdict(state, summary.get("duration_s"))
+    tag = ('<span class="nm-tag synthetic">synthetic</span>' if is_synth else
+           f'<span class="nm-tag">{esc(state["run"]["source"])}</span>')
+    meta = (f'Run #{run_id} &nbsp; {summary.get("packets", 0):,} packets &nbsp; '
+            f'{summary.get("duration_s", 0):g} s &nbsp; {summary.get("hosts", 0)} hosts &nbsp; '
+            f'{summary.get("flows", 0):,} flows')
+    st.markdown(
+        f'<div class="nm-head"><div><div class="nm-title">{esc(title or state["run"]["name"])}{tag}</div>'
+        f'<div class="nm-meta">{meta}</div></div>'
+        f'<div class="nm-verdict {tone}">{esc(verdict)}</div></div>', unsafe_allow_html=True)
+    if is_synth:
+        st.caption("Synthetic traffic generated by NetMind's demo, not a real capture.")
 
-# ---- header and status -------------------------------------------------------
-left, right = st.columns([3, 1])
-left.header(f"{state['run']['name']}")
-left.caption(f"Run #{run_id} · source: {state['run']['source']} · "
-             f"{state['summary'].get('packets')} packets over {state['summary'].get('duration_s')} s")
-if state["run"]["source"] in ("synthetic", "demo"):
-    left.caption("Synthetic traffic generated by NetMind's demo, not a real capture.")
-if status.get("state") == "insufficient_data":
-    right.info("ℹ Anomaly detection skipped: not enough traffic")
-elif incidents:
-    right.error(f"⚠ {len(incidents)} incident{'s' if len(incidents) > 1 else ''} detected")
-else:
-    right.success("✓ No anomalies detected")
 
-# ---- KPI tiles -----------------------------------------------------------------
-peak = metrics.loc[metrics["latency_ms"].idxmax()] if metrics["latency_ms"].notna().any() else None
-k = st.columns(5)
-k[0].metric("Latency (normal)", fmt(base.get("latency_ms"), "ms"),
-            help="Median latency per window in the normal baseline period")
-if peak is not None:
-    delta = (f"{peak['latency_ms'] - base['latency_ms']:+.1f} ms vs normal"
-             if base.get("latency_ms") is not None else None)
-    k[1].metric("Worst latency", fmt(peak["latency_ms"], "ms"), delta=delta,
-                delta_color="inverse", help=f"at t={peak['t']:g} s")
-else:
-    k[1].metric("Worst latency", "n/a", help="No request/reply pairs to measure latency from")
-k[2].metric("Throughput", fmt(o.get("throughput_mbps"), "Mbps", 3), help="Average over the run")
-k[3].metric("Packet loss", fmt(o.get("loss_pct"), "%", 2),
-            help="NS2: dropped / (delivered + dropped). Captures: (TCP retransmissions + "
-                 "unanswered pings) / (data segments + pings)")
-k[4].metric("Jitter", fmt(o.get("jitter_ms"), "ms"))
+# ---------------------------------------------------------------------------
+# Copilot (shared by the Overview panel and the Copilot page)
+# ---------------------------------------------------------------------------
+def answer_pending():
+    q = ss.pop("pending_q", None)
+    if not q:
+        return
+    res = get_copilot().ask(q, state)
+    hist = ss["chats"].setdefault(run_id, [])
+    hist.append({"role": "user", "content": q})
+    hist.append({"role": "assistant", "content": res["answer"], "backend": res["backend"],
+                 "sources": res["sources"]})
+    ss["prompts"][run_id] = res["prompt"]
 
-tab_overview, tab_copilot, tab_topology, tab_data = st.tabs(
-    ["Traffic & anomalies", "Copilot", "Topology & routing", "Data"])
 
-# ---- traffic and anomalies ---------------------------------------------------------
-with tab_overview:
-    rate_col, rate_name = ("pps", "Packets per second")
-    rows = [(rate_col, rate_name), ("latency_ms", "Latency (ms)"),
-            ("loss_pct", "Packet loss (%)")]
-    fig = make_subplots(rows=4, cols=1, shared_xaxes=True, vertical_spacing=0.06,
-                        subplot_titles=[r[1] for r in rows] + ["Anomaly score"])
-    for i, (col, name) in enumerate(rows, 1):
-        fig.add_trace(go.Scatter(x=metrics["t"], y=metrics[col], mode="lines", name=name,
-                                 line=dict(color=BLUE, width=2),
-                                 hovertemplate=f"t=%{{x}} s<br>{name}: %{{y:.2f}}<extra></extra>"),
-                      row=i, col=1)
-    if not scores.empty and scores["anomaly_score"].notna().any():
-        fig.add_trace(go.Scatter(x=scores["t"], y=scores["anomaly_score"], mode="lines",
-                                 line=dict(color=BLUE, width=2), name="Anomaly score",
-                                 hovertemplate="t=%{x} s<br>score %{y:.2f}<extra></extra>"),
-                      row=4, col=1)
-        a = scores[scores["is_anomaly"].astype(bool)]
-        fig.add_trace(go.Scatter(x=a["t"], y=a["anomaly_score"], mode="markers", name="Anomalous window",
-                                 marker=dict(color=CRITICAL, size=9, line=dict(color=SURFACE, width=2)),
-                                 hovertemplate="t=%{x} s<br>anomalous, score %{y:.2f}<extra></extra>"),
-                      row=4, col=1)
-    shade_incidents(fig, incidents, [1, 2, 3, 4])
-    fig.update_xaxes(title_text="time (s)", row=4, col=1)
-    fig.update_annotations(font_size=12)
-    stretch(st.plotly_chart, style(fig, 640))
-    st.caption("Shaded bands are incidents. Red dots are windows the anomaly detector flagged.")
+def show_history(limit: int | None = None):
+    hist = ss["chats"].get(run_id, [])
+    if limit:
+        hist = hist[-limit:]
+    for m in hist:
+        with st.chat_message(m["role"]):
+            st.markdown(m["content"])
+            if m["role"] == "assistant":
+                src = "; ".join(f"[{s['n']}] {s['title']}" for s in m.get("sources", []))
+                st.caption(f"answered by: {m.get('backend')}" + (f" · sources: {src}" if src else ""))
 
-    st.subheader("Incidents")
+
+def copilot_panel():
+    st.markdown('<div class="nm-panel-title">Ask the Copilot</div>'
+                '<div class="nm-panel-sub">Answers use this run\'s measurements, its incidents and '
+                'the networking knowledge base.</div>', unsafe_allow_html=True)
+    answer_pending()
+    for i, q in enumerate(SUGGESTIONS[:3]):
+        stretch(st.button, q, on_click=cb_ask, args=(q,), key=f"ov_sugg_{i}")
+    box = st.container(height=430, border=True)
+    with box:
+        if not ss["chats"].get(run_id):
+            st.caption("Pick a question above or type your own below.")
+        show_history(limit=6)
+    with st.form("ov_form", border=False):
+        st.text_input("Your question", key="ov_q", placeholder="e.g. Why did latency jump?",
+                      label_visibility="collapsed")
+        st.form_submit_button("Ask", on_click=cb_overview_submit, type="primary")
+
+
+# ---------------------------------------------------------------------------
+# pages
+# ---------------------------------------------------------------------------
+def page_overview():
+    header()
+    rate_col = "pps"
+    chart(charts.network_trace(metrics, incidents, rate_col, "Packets per second"), key="trace")
+    st.markdown('<div class="nm-trace-cap">Traffic across the whole run. Red bands are incidents '
+                'found by the anomaly detector.</div>', unsafe_allow_html=True)
+    st.markdown(logic.kpi_cards_html(logic.kpis(state, metrics, scores)), unsafe_allow_html=True)
+
+    left, right = st.columns([2.15, 1], gap="large")
+    with left:
+        st.markdown("### Latency and loss over time")
+        lat_name = "One-way delay (ms)" if is_ns2 else "Latency (ms)"
+        chart(charts.metric_panels(metrics, incidents, state.get("baseline", {}),
+                                   [("latency_ms", lat_name), ("loss_pct", "Packet loss (%)")]),
+              key="ov_panels")
+        c1, c2 = st.columns(2)
+        protos = db.load("protocols", run_id)
+        with c1:
+            st.markdown("### Protocols")
+            if not protos.empty:
+                p = protos.sort_values("packets")
+                chart(charts.hbars(p["protocol"].tolist(), p["packets"].tolist(),
+                                   text=[f"{v:g}%" for v in p["share_pct"]], xtitle="packets"),
+                      key="ov_protos")
+        with c2:
+            st.markdown("### Top talkers")
+            tt = pd.DataFrame(summ_full.get("top_talkers", []))
+            if tt.empty:
+                fl = db.load("flows", run_id)
+                if not fl.empty:
+                    tt = fl.groupby("a")["bytes"].sum().reset_index().rename(columns={"a": "host"}) \
+                        .sort_values("bytes", ascending=False).head(5)
+            if not tt.empty:
+                tt = tt.sort_values("bytes")
+                chart(charts.hbars(tt["host"].tolist(), tt["bytes"].tolist(),
+                                   text=[f"{b / 1e6:.2f} MB" for b in tt["bytes"]], xtitle="bytes sent"),
+                      key="ov_talkers")
+        if incidents:
+            st.markdown("### Incidents")
+            for e in incidents:
+                sev, colour = logic.severity(e)
+                st.markdown(
+                    f'<div class="nm-inc-head"><span class="nm-inc-title">{esc(e["title"])}</span>'
+                    f'<span class="nm-sev" style="background:{colour}">{sev}</span>'
+                    f'<span class="nm-inc-meta">t = {e["start_t"]:g} to {e["end_t"]:g} s, '
+                    f'<b>{esc(e.get("top_src"))}</b> to <b>{esc(e.get("top_dst"))}</b></span></div>',
+                    unsafe_allow_html=True)
+            st.caption("Details and evidence are on the Incidents page.")
+    with right:
+        copilot_panel()
+
+
+def page_incidents():
+    header("Incidents")
+    status = state.get("anomaly_status") or {}
     if status.get("state") == "insufficient_data":
         st.info(f"Anomaly detection was skipped: {status.get('reason')}.")
-    elif not incidents:
-        st.write("No anomalies: every window looks like the normal baseline.")
-    for e in incidents:
+        return
+    if not incidents:
+        st.success("No incidents: every time window looked like the normal baseline.")
+        return
+    st.markdown("### Anomaly score over time")
+    chart(charts.anomaly_chart(scores, summ_full.get("threshold"), incidents), key="inc_score")
+    st.caption("A window is flagged when one feature is 6 or more units of normal spread away from "
+               "normal, or when the Isolation Forest score is above its threshold and a feature is "
+               "4 or more units away.")
+    for i, e in enumerate(incidents):
+        sev, colour = logic.severity(e)
         with st.container(border=True):
-            st.markdown(f"**⚠ {e['title']}** · t = {e['start_t']:g}–{e['end_t']:g} s · "
-                        f"peak score {e['peak_score']:.2f}")
-            st.caption(f"Busiest: {e['top_proto']} from {e['top_src']} to {e['top_dst']}")
-            stretch(st.dataframe, pd.DataFrame(e["top_features"]).rename(columns={
-                "feature": "Feature", "value": "In incident", "normal": "Normal",
-                "z": "Deviation"}), hide_index=True)
-    for r in state["routes"]:
-        st.caption(f"Route of flow {r['fid']} from t={r['t']:.2f} s: {r['path']}")
+            st.markdown(
+                f'<div class="nm-inc-head"><span class="nm-inc-title">{esc(e["title"])}</span>'
+                f'<span class="nm-sev" style="background:{colour}">{sev}</span></div>'
+                f'<div class="nm-inc-meta">t = {e["start_t"]:g} to {e["end_t"]:g} s '
+                f'({e["windows"]:g} windows) &nbsp; peak score {e["peak_score"]:.2f} &nbsp; '
+                f'busiest traffic {esc(e.get("top_proto"))} from <b>{esc(e.get("top_src"))}</b> '
+                f'to <b>{esc(e.get("top_dst"))}</b></div>', unsafe_allow_html=True)
+            c1, c2 = st.columns([1, 1], gap="large")
+            feats = e.get("top_features") or []
+            with c1:
+                if feats:
+                    st.markdown("**What stood out**")
+                    chart(charts.evidence_bars(feats), key=f"inc_ev_{i}")
+            with c2:
+                col = next((f["feature"] for f in feats if f["feature"] in metrics.columns
+                            and metrics[f["feature"]].notna().any()), "pps")
+                st.markdown("**Around the incident**")
+                chart(charts.zoom_chart(metrics, e, col, logic.feature_name(col),
+                                        state.get("baseline", {}).get(col)), key=f"inc_zoom_{i}")
+            q = (f"Explain the {e['title'].lower()} between t={e['start_t']:g} s and "
+                 f"t={e['end_t']:g} s. What caused it and what should I check?")
+            st.button("Ask the Copilot about this incident", key=f"inc_ask_{i}",
+                      on_click=cb_ask_and_open, args=(q,))
+    if state.get("routes"):
+        st.markdown("### Route changes (NS2)")
+        stretch(st.dataframe, pd.DataFrame(state["routes"]).rename(
+            columns={"t": "Time (s)", "fid": "Flow", "path": "Path"}), hide_index=True)
 
+
+def page_traffic():
+    header("Traffic")
     protos = db.load("protocols", run_id)
-    if not protos.empty:
-        st.subheader("Protocol distribution")
-        p = protos.sort_values("packets")
-        pf = go.Figure(go.Bar(x=p["packets"], y=p["protocol"], orientation="h",
-                              marker=dict(color=BLUE, cornerradius=4),
-                              text=[f"{v:.1f}%" for v in p["share_pct"]], textposition="outside",
-                              textfont=dict(color=INK2),
-                              hovertemplate="%{y}: %{x} packets<extra></extra>"))
-        pf.update_xaxes(title_text="packets")
-        stretch(st.plotly_chart, style(pf, 60 + 40 * len(p)))
-
-# ---- Copilot ---------------------------------------------------------------------
-with tab_copilot:
-    cp = get_copilot()
-    st.caption(f"Answers use this run's measurements, its incidents and the networking knowledge "
-               f"base. LLM backend: **{cp.backend}** "
-               "(set ANTHROPIC_API_KEY for Claude, or run Ollama locally; otherwise offline mode). "
-               "Advisory only: it never changes the network.")
-    key = f"chat_{run_id}"
-    st.session_state.setdefault(key, [])
-    suggestions = ["What is causing the network slowdown?", "Is anyone attacking my network?",
-                   "Did any link fail?", "What is jitter?"]
-    cols = st.columns(len(suggestions))
-    clicked = next((q for c, q in zip(cols, suggestions) if stretch(c.button, q)), None)
-    for msg in st.session_state[key]:
-        with st.chat_message(msg["role"]):
-            st.markdown(msg["content"])
-    q = st.chat_input("Ask about your network...") or clicked
-    if q:
-        st.session_state[key].append({"role": "user", "content": q})
-        with st.chat_message("user"):
-            st.markdown(q)
-        with st.chat_message("assistant"):
-            with st.spinner("Thinking..."):
-                res = cp.ask(q, state)
-            st.markdown(res["answer"])
-            st.caption(f"backend: {res['backend']} · sources: " +
-                       "; ".join(f"[{s['n']}] {s['title']}" for s in res["sources"]))
-        st.session_state[key].append({"role": "assistant", "content": res["answer"]})
-
-# ---- topology and routing ------------------------------------------------------------
-with tab_topology:
-    import networkx as nx
-    from netmind.topology import (distance_vector_tables, graph_from_frames, link_state_tables,
-                                  shortest_path)
-    G = graph_from_frames(db.load("nodes", run_id), db.load("links", run_id))
-    if G.number_of_nodes() == 0:
-        st.write("No topology for this run.")
-    else:
-        weight = st.radio("Edge weight", ["latency", "hops"], horizontal=True,
-                          help="latency = measured median RTT (ms); hops = every link costs 1")
-        nodes = sorted(G.nodes)
-        c1, c2 = st.columns(2)
-        src = c1.selectbox("From", nodes, index=0)
-        dst = c2.selectbox("To", nodes, index=len(nodes) - 1)
-        try:
-            sp = shortest_path(G, src, dst, weight)
-            path_edges = set(zip(sp["path"], sp["path"][1:]))
-        except nx.NetworkXNoPath:
-            sp, path_edges = None, set()
-        pos = nx.kamada_kawai_layout(G) if G.number_of_nodes() > 2 else nx.spring_layout(G, seed=1)
-        tf = go.Figure()
-        for a, b, d in G.edges(data=True):
-            on = (a, b) in path_edges or (b, a) in path_edges
-            tf.add_trace(go.Scatter(x=[pos[a][0], pos[b][0]], y=[pos[a][1], pos[b][1]], mode="lines",
-                                    line=dict(color=INK if on else AXIS, width=3 if on else 1.5),
-                                    hoverinfo="skip"))
-        mx = [(pos[a][0] + pos[b][0]) / 2 for a, b in G.edges]
-        my = [(pos[a][1] + pos[b][1]) / 2 for a, b in G.edges]
-        tip = [f"{a} — {b}<br>{d.get('packets', 0)} packets<br>latency {d.get('latency', '?')} ms"
-               + (f"<br>drops {d['drops']}" if 'drops' in d and d['drops'] == d['drops'] else "")
-               for a, b, d in G.edges(data=True)]
-        tf.add_trace(go.Scatter(x=mx, y=my, mode="markers", marker=dict(size=14, opacity=0),
-                                hovertext=tip, hoverinfo="text"))
-        kinds = sorted({G.nodes[n].get("kind", "local") for n in G.nodes})
-        for kind in kinds:
-            ns = [n for n in G.nodes if G.nodes[n].get("kind", "local") == kind]
-            tf.add_trace(go.Scatter(
-                x=[pos[n][0] for n in ns], y=[pos[n][1] for n in ns], mode="markers+text",
-                name=KIND_NAMES.get(kind, kind), text=ns, textposition="top center",
-                textfont=dict(color=INK2, size=11),
-                marker=dict(size=18, color=KIND_COLOURS.get(kind, BLUE), line=dict(color=SURFACE, width=2)),
-                hovertemplate="%{text}<extra>" + KIND_NAMES.get(kind, kind) + "</extra>"))
-        style(tf, 460)
-        tf.update_layout(showlegend=len(kinds) > 1, legend=dict(orientation="h", y=-0.05))
-        tf.update_xaxes(visible=False)
-        tf.update_yaxes(visible=False)
-        stretch(st.plotly_chart, tf)
-        if sp:
-            st.markdown(f"**Dijkstra shortest path ({weight}):** {' → '.join(sp['path'])} "
-                        f"· total cost {sp['cost']:g}")
-        else:
-            st.markdown("No path between these nodes.")
-        ls = link_state_tables(G, weight)[src]
-        dv, rounds = distance_vector_tables(G, weight)
-        table = pd.DataFrame([{"Destination": d, "LS next hop": ls[d]["next_hop"], "LS cost": ls[d]["cost"],
-                               "DV next hop": dv[src][d]["next_hop"], "DV cost": dv[src][d]["cost"]}
-                              for d in sorted(ls)])
-        st.subheader(f"Routing table of {src}")
-        st.caption(f"Link State (Dijkstra on the full map) vs Distance Vector (Bellman-Ford, "
-                   f"converged after {rounds} exchange rounds). Both reach the same costs.")
-        stretch(st.dataframe, table, hide_index=True)
-
-# ---- raw data ----------------------------------------------------------------------
-with tab_data:
-    st.subheader("Per-window metrics")
-    stretch(st.dataframe, metrics, hide_index=True)
-    st.subheader("Anomaly scores")
-    stretch(st.dataframe, scores, hide_index=True)
     flows = db.load("flows", run_id)
-    if not flows.empty:
-        st.subheader("Top flows")
-        stretch(st.dataframe, flows.head(100), hide_index=True)
-    st.subheader("Normal baseline used by the detector")
-    st.json(json.loads(json.dumps(base)))
+    c1, c2 = st.columns(2, gap="large")
+    with c1:
+        st.markdown("### Packets by protocol")
+        if not protos.empty:
+            p = protos.sort_values("packets")
+            chart(charts.hbars(p["protocol"].tolist(), p["packets"].tolist(),
+                               text=[f"{v:g}%" for v in p["share_pct"]], xtitle="packets"), key="tr_p")
+    with c2:
+        st.markdown("### Bytes by protocol")
+        if not protos.empty:
+            p = protos.sort_values("bytes")
+            chart(charts.hbars(p["protocol"].tolist(), p["bytes"].tolist(),
+                               text=[f"{b / 1e6:.2f} MB" for b in p["bytes"]], xtitle="bytes"), key="tr_b")
+    st.markdown("### Flows")
+    st.caption("A flow is one conversation: the same two addresses, two ports and protocol, "
+               "both directions together.")
+    if flows.empty:
+        st.write("No flows stored for this run.")
+        return
+    lbl = flows["app"].where(flows["app"].fillna("") != "", flows["proto"])
+    c3, c4 = st.columns([2, 1])
+    text = c3.text_input("Search address, port or protocol", key="flow_q",
+                         placeholder="e.g. 192.168.1.66 or :443")
+    chosen = c4.multiselect("Protocols", sorted(lbl.dropna().unique()), key="flow_protos")
+    shown = logic.filter_flows(flows, text, chosen)
+    top = shown.sort_values("bytes", ascending=False).head(10).sort_values("bytes")
+    if not top.empty:
+        chart(charts.hbars(top["flow"].tolist(), top["bytes"].tolist(),
+                           text=[f"{b / 1e3:.0f} kB" for b in top["bytes"]], xtitle="bytes"), key="tr_f")
+    cols = [c for c in ("flow", "proto", "app", "packets", "bytes", "duration_s") if c in shown.columns]
+    stretch(st.dataframe, shown[cols].sort_values("bytes", ascending=False), hide_index=True,
+            height=360, column_config={
+                "flow": st.column_config.TextColumn("Flow"),
+                "packets": st.column_config.NumberColumn("Packets", format="%d"),
+                "bytes": st.column_config.NumberColumn("Bytes", format="%d"),
+                "duration_s": st.column_config.NumberColumn("Duration (s)", format="%.2f")})
+    st.caption(f"{len(shown):,} of {len(flows):,} flows shown.")
+
+
+def page_performance():
+    header("Performance")
+    lat_name = "One-way delay (ms)" if is_ns2 else "Latency (ms)"
+    panels = [("latency_ms", lat_name), ("jitter_ms", "Jitter (ms)"), ("loss_pct", "Packet loss (%)"),
+              ("throughput_mbps", "Throughput (Mb/s)"), ("pps", "Packets per second"),
+              ("retransmissions", "TCP retransmissions")]
+    chart(charts.metric_panels(metrics, incidents, state.get("baseline", {}), panels, 140), key="pf_p")
+    with st.expander("How these are measured"):
+        if is_ns2:
+            st.markdown("- **Delay**: receive time minus send time of each delivered packet (NS2 knows "
+                        "both).\n- **Loss**: dropped / (delivered + dropped), by the window a packet was "
+                        "sent in.\n- **Jitter**: average change in delay between consecutive packets of "
+                        "the same flow.")
+        else:
+            st.markdown("- **Latency**: request-to-reply time from TCP SYN to SYN-ACK, ping request to "
+                        "reply, and DNS query to response, averaged per path.\n- **Loss**: (TCP "
+                        "retransmissions + unanswered pings) / (TCP data segments + pings).\n- **Jitter**: "
+                        "average change between consecutive RTTs on the same path.")
+    rtt = db.load("rtt", run_id)
+    if not rtt.empty and "kind" in rtt.columns:
+        st.markdown("### Round-trip times by measurement type")
+        chart(charts.rtt_boxes(rtt), key="pf_rtt")
+        st.caption("Log scale. A ping to the gateway takes a few milliseconds; a handshake with a web "
+                   "server takes tens.")
+    if summ_full.get("ns2_flows"):
+        st.markdown("### Per-flow totals (NS2)")
+        stretch(st.dataframe, pd.DataFrame(summ_full["ns2_flows"]), hide_index=True)
+
+
+def page_topology():
+    import networkx as nx
+    from netmind.topology import (graph_from_frames, link_state_tables, shortest_path)
+    header("Topology & routing")
+    G = graph_from_frames(db.load("nodes", run_id), db.load("links", run_id))
+    if G.number_of_nodes() < 2:
+        st.write("Not enough hosts in this run to draw a topology.")
+        return
+    nodes = sorted(G.nodes)
+    links = sorted(tuple(sorted(e)) for e in G.edges)
+    c1, c2, c3, c4 = st.columns([1, 1, 1, 1.4])
+    weight = c1.radio("Cost", ["latency", "hops"], horizontal=True, key="topo_w",
+                      help="latency = measured median RTT (ms); hops = every link costs 1")
+    src = c2.selectbox("From", nodes, index=0, key="topo_src")
+    dst = c3.selectbox("To", nodes, index=len(nodes) - 1, key="topo_dst")
+    fail = c4.selectbox("Simulate a link failure", ["None"] + [f"{a} – {b}" for a, b in links],
+                        key="topo_fail")
+    failed = None if fail == "None" else links[[f"{a} – {b}" for a, b in links].index(fail)]
+    H = G.copy()
+    if failed:
+        H.remove_edge(*failed)
+    try:
+        sp = shortest_path(H, src, dst, weight)
+        path_edges = set(zip(sp["path"], sp["path"][1:]))
+    except (nx.NetworkXNoPath, nx.NodeNotFound):
+        sp, path_edges = None, set()
+    chart(charts.topology_chart(G, path_edges, failed), key="topo_chart")
+    if sp:
+        st.markdown(f"**Dijkstra shortest path ({weight})**: "
+                    f"<span class='nm-mono'>{' → '.join(map(esc, sp['path']))}</span>, total cost "
+                    f"{sp['cost']:g}" + (" (with the failed link removed)" if failed else ""),
+                    unsafe_allow_html=True)
+    else:
+        st.warning(f"No path from {src} to {dst}" + (" once that link fails." if failed else "."))
+    st.caption("Node size shows bytes sent; line width shows packets on the link. This is a logical "
+               "map of who talked to whom, not physical cabling.")
+
+    left, right = st.columns(2, gap="large")
+    with left:
+        st.markdown(f"### Routing table of {src}")
+        ls = link_state_tables(G, weight)[src]
+        dvt = logic.simulate_link_failure(G, ("", ""), src, weight)
+        tab = pd.DataFrame([{"Destination": d, "Next hop (LS)": ls[d]["next_hop"], "Cost (LS)": ls[d]["cost"]}
+                            for d in sorted(ls)]).merge(
+            dvt[["Destination", "Next hop before", "Cost before"]].rename(
+                columns={"Next hop before": "Next hop (DV)", "Cost before": "Cost (DV)"}), on="Destination")
+        stretch(st.dataframe, tab, hide_index=True)
+        st.caption(f"Link State runs Dijkstra on the full map; Distance Vector exchanges tables with "
+                   f"neighbours (Bellman-Ford) and converged in {dvt.attrs['dv_rounds']} rounds. Both "
+                   "reach the same costs.")
+    with right:
+        st.markdown("### After the link failure")
+        if not failed:
+            st.markdown('<div class="nm-empty">Choose a link under <b>Simulate a link failure</b> to '
+                        'see how Distance Vector routing recomputes the routes.</div>',
+                        unsafe_allow_html=True)
+        else:
+            sim = logic.simulate_link_failure(G, failed, src, weight)
+            changed = int(sim["Changed"].sum())
+            st.markdown(f"Link **{esc(failed[0])} – {esc(failed[1])}** removed: **{changed}** of "
+                        f"{len(sim)} routes from {esc(src)} changed. Distance Vector re-converged in "
+                        f"{sim.attrs['dv_rounds']} rounds.")
+            stretch(st.dataframe, sim, hide_index=True)
+
+
+def page_copilot():
+    header("Copilot")
+    cp = get_copilot()
+    q = st.chat_input("Ask about this run, e.g. why did latency jump at 70 s?")
+    if q:
+        ss["pending_q"] = q
+    answer_pending()
+    left, right = st.columns([2.2, 1], gap="large")
+    with right:
+        st.markdown("### Try asking")
+        for i, s in enumerate(SUGGESTIONS):
+            stretch(st.button, s, on_click=cb_ask, args=(s,), key=f"cp_sugg_{i}")
+        for i, e in enumerate(incidents[:4]):
+            q2 = f"Explain the {e['title'].lower()} between t={e['start_t']:g} s and t={e['end_t']:g} s."
+            stretch(st.button, f"Explain: {e['title']} ({e['start_t']:g}-{e['end_t']:g} s)",
+                    on_click=cb_ask, args=(q2,), key=f"cp_inc_{i}")
+        st.markdown("### Model")
+        if cp.backend == "offline":
+            st.markdown("Running **offline**: answers are built from the incidents and the knowledge "
+                        "base without an LLM. For Claude, set `ANTHROPIC_API_KEY` before starting the "
+                        "dashboard; for a free local model, install Ollama and run "
+                        "`ollama pull llama3.2`.")
+        else:
+            st.markdown(f"Using **{esc(cp.backend)}**. If it cannot be reached, answers fall back "
+                        "to offline mode.")
+        st.caption("The Copilot only explains and recommends. It never changes the network.")
+        if ss["chats"].get(run_id):
+            st.button("Clear conversation", key="cp_clear",
+                      on_click=lambda: ss["chats"].pop(run_id, None))
+    with left:
+        if not ss["chats"].get(run_id):
+            st.markdown('<div class="nm-empty">Ask a question below, or pick one on the right. The '
+                        'Copilot reads this run\'s measurements and incidents, retrieves the most '
+                        'relevant networking notes, and explains what happened.</div>',
+                        unsafe_allow_html=True)
+        show_history()
+        if ss["prompts"].get(run_id):
+            with st.expander("What the Copilot was given for the last question"):
+                st.code(ss["prompts"][run_id], language=None)
+
+
+def page_compare():
+    header("Compare runs")
+    if len(run_ids) < 2:
+        st.markdown('<div class="nm-empty">Create a second run to compare, for example a synthetic '
+                    'demo with a different seed, or normal traffic without injected problems '
+                    '(sidebar, <b>Start a new run</b>).</div>', unsafe_allow_html=True)
+        return
+    labels = {int(r.id): f"#{r.id}  {r.name}" for r in runs.itertuples()}
+    c1, c2 = st.columns(2)
+    a = c1.selectbox("Run A", run_ids, index=0, format_func=labels.get, key="cmp_a")
+    b = c2.selectbox("Run B", run_ids, index=1, format_func=labels.get, key="cmp_b")
+    sa, sb = get_state(db, a), get_state(db, b)
+    stretch(st.dataframe, logic.compare_runs(sa, sb), hide_index=True)
+    ma, mb = db.load("metrics", a), db.load("metrics", b)
+    na, nb = f"#{a} {sa['run']['name']}", f"#{b} {sb['run']['name']}"
+    c3, c4 = st.columns(2, gap="large")
+    with c3:
+        chart(charts.compare_chart(ma, mb, "latency_ms", na, nb, "Latency / delay (ms)"), key="cmp_l")
+    with c4:
+        chart(charts.compare_chart(ma, mb, "pps", na, nb, "Packets per second"), key="cmp_p")
+
+
+def page_data():
+    header("Data & export")
+    st.markdown("### Download")
+    c1, c2, c3, c4 = st.columns(4)
+    c1.download_button("Report (Markdown)", logic.run_report_md(state, metrics),
+                       file_name=f"netmind_run{run_id}_report.md", mime="text/markdown")
+    c2.download_button("Metrics (CSV)", metrics.to_csv(index=False), file_name=f"netmind_run{run_id}_metrics.csv",
+                       mime="text/csv")
+    c3.download_button("Anomaly scores (CSV)", scores.to_csv(index=False),
+                       file_name=f"netmind_run{run_id}_anomalies.csv", mime="text/csv")
+    c4.download_button("Incidents (CSV)", db.load("incidents", run_id).to_csv(index=False),
+                       file_name=f"netmind_run{run_id}_incidents.csv", mime="text/csv")
+    for title, df in (("Per-window metrics", metrics), ("Anomaly scores", scores),
+                      ("Flows", db.load("flows", run_id))):
+        with st.expander(f"{title} ({len(df):,} rows)"):
+            stretch(st.dataframe, df, hide_index=True)
+    with st.expander("Normal baseline used by the detector"):
+        st.json(state.get("baseline", {}))
+    st.markdown("### Delete this run")
+    sure = st.checkbox(f"I want to delete run #{run_id} ({state['run']['name']})", key="del_sure")
+    st.button("Delete run", key="del_btn", disabled=not sure, on_click=cb_delete, args=(run_id,))
+
+
+{"Overview": page_overview, "Incidents": page_incidents, "Traffic": page_traffic,
+ "Performance": page_performance, "Topology & routing": page_topology, "Copilot": page_copilot,
+ "Compare runs": page_compare, "Data & export": page_data}[ss.get("page", "Overview")]()

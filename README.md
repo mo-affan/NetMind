@@ -88,6 +88,21 @@ python -m netmind dashboard                     # second terminal; opens http://
 
 or `powershell -ExecutionPolicy Bypass -File scripts\run_demo.ps1 -Dashboard`.
 
+### Dashboard pages
+
+| Page | What it shows |
+| --- | --- |
+| Overview | The whole run as one traffic trace with incident bands, a verdict, six headline numbers with trend lines, latency and loss over time, protocols, top talkers, and the Copilot chat panel |
+| Incidents | Anomaly score over time; per incident: severity, the features that stood out against normal, a zoomed chart and an "Ask the Copilot about this incident" button |
+| Traffic | Packets and bytes by protocol; searchable, filterable flow table and the biggest flows |
+| Performance | Latency, jitter, loss, throughput, packets/s and retransmissions against their normal level; round-trip times by measurement type |
+| Topology & routing | Host graph, Dijkstra path, Link State vs Distance Vector tables, and a link-failure simulator showing which routes change |
+| Copilot | Full chat with suggested questions, per-incident questions, sources, and the exact prompt the model was given |
+| Compare runs | Two runs side by side (for example the demo vs normal-only traffic) |
+| Data & export | Markdown report and CSV downloads, raw tables, the detector's baseline, delete a run |
+
+New runs (synthetic demo with a chosen seed and length, normal-only traffic, an uploaded pcap or NS2 trace, or a live capture) are started from **Start a new run** in the sidebar.
+
 The demo's traffic is **generated, not captured**: 180 s of normal browsing, DNS and pings from three hosts, with congestion at 70-100 s, a port scan at 120-128 s and a ping flood at 150-158 s. It is deterministic (seed 7), takes a few seconds, and every run is stored as a new run in `data\netmind.db`.
 
 ### All commands

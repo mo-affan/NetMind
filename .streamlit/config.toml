@@ -1,9 +1,10 @@
 [theme]
 base = "light"
-primaryColor = "#2a78d6"
-backgroundColor = "#fcfcfb"
-secondaryBackgroundColor = "#f3f2ee"
-textColor = "#0b0b0b"
+primaryColor = "#0b6e78"
+backgroundColor = "#f4f6f7"
+secondaryBackgroundColor = "#e9eef1"
+textColor = "#14212b"
+font = "sans serif"
 
 [server]
 # headless avoids Streamlit's first-run email prompt in the terminal;
