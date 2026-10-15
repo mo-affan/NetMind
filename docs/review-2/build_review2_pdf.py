@@ -43,7 +43,8 @@ S = {
     "say": ParagraphStyle("say", fontName="Sans", fontSize=9.6, leading=13.8, textColor=INK,
                           leftIndent=8, borderPadding=(6, 8, 6, 8), backColor=SOFT, spaceAfter=8,
                           spaceBefore=4),
-    "code": ParagraphStyle("code", fontName="Mono", fontSize=8.2, leading=10.6, textColor=INK),
+    "code": ParagraphStyle("code", fontName="Mono", fontSize=8.2, leading=10.6, textColor=INK,
+                           spaceBefore=3, spaceAfter=7),
 }
 W = A4[0] - 36 * mm
 
@@ -109,7 +110,7 @@ A(table([["Course", "Computer Networks Lab (BCSE308P), VIT Vellore"],
 A(Spacer(1, 10))
 A(P("How to use this: go through the checklist on page 1 the evening before and again 30 minutes "
     "before the review. Sections 3 to 8 are what you present; section 9 is what to show live; "
-    "section 10 is the viva preparation. Every number in this document is real output from NetMind "
+    "section 10 is the viva preparation; Appendix A lists every command and Appendix B shows how to start NS2 cleanly. Every number in this document is real output from NetMind "
     "or from our NS2 run; where data is synthetic, it says so, and you should say so too."))
 
 A(P("1. Before the review: checklist", "h1"))
@@ -414,6 +415,94 @@ story += bullets([
     "Fewer false alarms; honest \"not enough traffic\" instead of \"no anomalies\" for short captures.",
     "Redesigned dashboard with 8 pages, Copilot panel, link-failure simulator, light and dark themes.",
 ])
+
+# ---------------------------------------------------------------- appendix A: run everything
+A(PageBreak())
+A(P("Appendix A. How to run everything", "h1"))
+A(P("Windows (PowerShell), in the project folder", "h2"))
+A(P("Every time you open a new PowerShell window:"))
+A(code("""cd C:\\Users\\moham\\NetMind
+.\\.venv\\Scripts\\Activate.ps1          # the prompt starts with (.venv)
+# if scripts are blocked:  Set-ExecutionPolicy -Scope Process Bypass   then run the line above again"""))
+A(P("Once, or after every git pull:"))
+A(code("""git pull
+python -m pip install -r requirements.txt
+python -m pytest -q                       # all tests; note the passed count"""))
+A(P("Commands", "h2"))
+A(table([
+    ["What", "Command", "What you should see"],
+    ["Synthetic demo", "python -m netmind demo", "Per-window table and 3 incidents (congestion, port scan, flood)"],
+    ["Dashboard", "python -m netmind dashboard", "Browser opens http://localhost:8501; keep this window open"],
+    ["Ask the Copilot", "python -m netmind ask \"Why is the network slow?\"", "Answer naming the congestion at 70-100 s, with sources"],
+    ["See the prompt", "python -m netmind ask \"Is anyone attacking my network?\" --show-prompt", "The full prompt: data, incidents, retrieved knowledge"],
+    ["Routing", "python -m netmind routes --from 192.168.1.10 --to 8.8.8.8", "Dijkstra path; Link State vs Distance Vector tables"],
+    ["Routing by hops", "python -m netmind routes --from 192.168.1.10 --to 8.8.8.8 --weight hops", "Same, every link costs 1"],
+    ["Analyse the NS2 trace", "python -m netmind ns2 ns2\\results\\netmind.tr", "Congestion 3-6 s and link failure / reroute via n4"],
+    ["List runs / report", "python -m netmind runs<br/>python -m netmind report --run 1", "Stored runs; metrics and incidents of one run"],
+    ["REST API", "python -m netmind api", "http://127.0.0.1:8000/docs (interactive API page)"],
+    ["Live capture (optional)", "python -m netmind capture --duration 60", "Needs Npcap and PowerShell run as Administrator"],
+    ["Help", "python -m netmind --help", "All commands"],
+], [0.2, 0.43, 0.37]))
+A(Spacer(1, 4))
+A(P("In the dashboard: sidebar <b>Run</b> box picks the run; <b>Start a new run</b> → <b>Generate and "
+    "analyse</b> makes a demo run; <b>Analyse file</b> loads ns2\\results\\netmind.tr as an NS2 run. "
+    "Stop the dashboard with Ctrl + C in its PowerShell window."))
+
+A(P("Ubuntu (NS2)", "h2"))
+A(P("Open the Ubuntu terminal (Start menu → Ubuntu). Paste with Ctrl + Shift + V."))
+A(code("""cd ~/netmind_ns2
+ns netmind_scenario.tcl 2>&1 | tee ns_run_output.txt   # runs the 10 s simulation
+python3 check_trace.py netmind.tr                      # 5 checks, all PASS
+nam netmind.nam                                        # animation (see Appendix B)
+cp netmind.tr ns_run_output.txt /mnt/c/Users/moham/NetMind/ns2/results/   # trace to Windows"""))
+
+# ---------------------------------------------------------------- appendix B: clean NS2 start
+A(PageBreak())
+A(P("Appendix B. Showing NS2 starting cleanly (no errors on screen)", "h1"))
+A(P("Do steps 1 and 2 once before the review day; do step 3 in front of the panel."))
+A(P("1. Fix the two warnings we saw (once)", "h2"))
+A(table([
+    ["What you saw", "Cause", "Fix"],
+    ["\"ns found the right version of tclsh in /bin/tclsh8.6 but it doesn't seem to be there anymore\"",
+     "Tcl 8.6 was not installed", "<font name='Mono' size='7.6'>sudo apt install -y tcl8.6 tk8.6</font> "
+     "(already done on 15 Oct). Check: type <font name='Mono' size='7.6'>ns</font>, you get a "
+     "<font name='Mono' size='7.6'>%</font> prompt with no warning; type <font name='Mono' size='7.6'>exit</font>"],
+    ["NAM prints only \"nam:\" and quits",
+     "NAM cannot find the Tk library file tk.tcl (seen with strace)",
+     "Find it: <font name='Mono' size='7.6'>find / -name tk.tcl 2&gt;/dev/null</font>; then set "
+     "TCL_LIBRARY and TK_LIBRARY to its folders (step 2). If find prints nothing: "
+     "<font name='Mono' size='7.6'>sudo apt install -y libtk8.6 tk8.6-dev tcl8.6-dev</font> and find again"],
+    ["\"ns -version\" opens a % prompt", "ns2 has no -version option", "Not an error. Type exit. "
+     "For the version: in the % prompt type <font name='Mono' size='7.6'>puts [ns-version]</font>"],
+], [0.32, 0.25, 0.43]))
+A(P("2. Make the NAM fix permanent (once, after NAM has opened)", "h2"))
+A(P("Use the folders that <b>find</b> printed (the folder containing tk.tcl for TK_LIBRARY, and the "
+    "matching tcl8.6 folder for TCL_LIBRARY). If it printed /usr/share/tcltk/tk8.6/tk.tcl:"))
+A(code("""echo 'export TCL_LIBRARY=/usr/share/tcltk/tcl8.6' >> ~/.bashrc
+echo 'export TK_LIBRARY=/usr/share/tcltk/tk8.6' >> ~/.bashrc
+source ~/.bashrc"""))
+A(P("3. In front of the panel", "h2"))
+A(code("""cd ~/netmind_ns2
+clear                                   # start from an empty screen
+ns netmind_scenario.tcl demo_run        # writes demo_run.tr and demo_run.nam"""))
+A(P("Expected output, and nothing else:"))
+A(code("""NetMind NS2 scenario: running 10 s simulation, output base name 'demo_run'
+t= 0.50 s  TCP flow n0 -> n3 starts
+t= 3.00 s  UDP burst n1 -> n3 starts (congestion expected)
+t= 6.00 s  UDP burst stops
+t= 7.00 s  link n2-n3 down (DV should reroute via n4)
+t= 8.50 s  link n2-n3 up
+Simulation finished at t=10 s
+Trace file:     demo_run.tr
+NAM animation:  demo_run.nam   (open with: nam demo_run.nam)"""))
+A(P("Then:"))
+A(code("""python3 check_trace.py demo_run.tr      # 5 x [PASS]
+nam demo_run.nam                        # NAM window opens"""))
+A(P("In NAM: press <b>▶</b> (play), slow it down with the <b>Step</b> slider, and pause at "
+    "<b>3 s</b> (UDP burst fills the n2-n3 queue, packets drop), <b>7 s</b> (n2-n3 link down, TCP goes "
+    "n2 → n4 → n3) and <b>8.5 s</b> (link back up). The time is shown at the top of the NAM window."))
+A(P("Rehearse this once the day before. If NAM still does not open, show the NAM screenshots or the NS2 "
+    "run in the dashboard; the simulation and the checks are what prove NS2 works.", "small"))
 
 doc = SimpleDocTemplate(str(OUT), pagesize=A4, leftMargin=18 * mm, rightMargin=18 * mm,
                         topMargin=18 * mm, bottomMargin=16 * mm, title="NetMind Review 2 checklist",
