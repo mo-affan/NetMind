@@ -81,7 +81,7 @@ NS2 trace ────────────┘                     (protocols
 | `netmind/copilot/` | M8 LLM Network Copilot | Affan |
 | `netmind/dashboard/` | M9 Streamlit dashboard | Hardik (lead) |
 | `netmind/pipeline.py`, `api.py`, `__main__.py` | Integration: pipeline, REST API, command line | Both |
-| `ns2/` | NS2 scenario (`netmind_scenario.tcl`) and standalone trace parser | Affan |
+| `ns2/` | NS2 scenario (`netmind_scenario.tcl`), trace parser, standard-library trace checker, `results/` for lab runs | Affan |
 | `tests/` | pytest suite, NS2 sample trace | Both |
 | `docs/` | Review documents and progress log | Both |
 
@@ -94,13 +94,14 @@ NS2 trace ────────────┘                     (protocols
 
 ## NS2
 
-See [`ns2/README.md`](ns2/README.md). In short (Ubuntu or WSL):
+NS2 is only needed to *run* the scenario (in the college lab). Analysing a trace file needs only Python, on any OS:
 
 ```bash
-sudo apt install ns2 nam
-cd ns2 && ns netmind_scenario.tcl && nam netmind.nam
-cd .. && python -m netmind ns2 ns2/netmind.tr
+python -m netmind ns2 path/to/netmind.tr     # full analysis
+python ns2/check_trace.py path/to/netmind.tr # quick check, standard library only
 ```
+
+Lab instructions: [`docs/NS2_LAB_EXECUTION.md`](docs/NS2_LAB_EXECUTION.md). Scenario details and metric definitions: [`ns2/README.md`](ns2/README.md).
 
 ## Tests
 
@@ -128,7 +129,7 @@ docker run -p 8501:8501 netmind      # dashboard at http://localhost:8501
 | 6 | LLM Copilot | Done |
 | 7 | Dashboard | Done |
 | 8 | Integration, testing, Docker | Done |
-| NS2 | Simulation scenario, trace analysis | Done (scenario to be run on a real NS2 install) |
+| NS2 | Scenario and trace analysis | Implemented and validated on a synthetic sample trace; **not yet executed in NS2** (lab run pending, see `docs/NS2_LAB_EXECUTION.md`) |
 
 See [`docs/PROGRESS.md`](docs/PROGRESS.md) for the dated log.
 

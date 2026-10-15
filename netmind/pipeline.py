@@ -19,7 +19,7 @@ from netmind.storage import NetMindDB
 from netmind.topology import build_graph, edges_frame, nodes_frame
 
 MODELS_DIR = Path("data") / "models"
-NS2_FEATURES = ["pps", "throughput_mbps", "latency_ms", "jitter_ms", "loss_pct"]
+NS2_FEATURES = ["pps", "throughput_mbps", "latency_ms", "jitter_ms", "loss_pct", "retransmissions"]
 
 
 def _save_common(db, run_id, metrics, scores, incidents, G, extra_summary):
@@ -71,27 +71,38 @@ def analyze_packets(df: pd.DataFrame, name: str, source: str = "pcap", db: NetMi
 
 def analyze_ns2(trace: str, name: str | None = None, db: NetMindDB | None = None,
                 window: float = 0.5, train_until: float = 3.0) -> int:
-    """Analyse an NS2 trace and store it as a new run. The first `train_until` seconds
-    (before the scenario's UDP burst at 3 s) are the normal baseline."""
+    """Analyse an existing NS2 trace file (no NS2 needed) and store it as a new run.
+
+    The first `train_until` seconds (before the scenario's UDP burst at 3 s) are the
+    normal baseline for anomaly detection. Metric definitions: netmind/capture/ns2.py.
+    """
     db = db or NetMindDB()
     ev = ns2src.read_trace(trace)
     if ev.empty:
-        raise ValueError(f"no NS2 events found in {trace}")
+        raise ValueError(f"no NS2 packet events found in {trace}: is it a wired trace "
+                         "written by `$ns trace-all`?")
+    pk = ns2src.packet_table(ev)
+    if pk.empty:
+        raise ValueError(f"{trace} has events but no data packets (tcp/cbr/udp)")
     recs = ns2src.trace_records(ev)
     summ = summary(recs)
     run_id = db.new_run(name or Path(trace).name, "ns2", summ)
     metrics = ns2src.trace_metrics(ev, window)
     metrics = metrics[metrics["packets"] > 0].reset_index(drop=True)
+    base = metrics[metrics["t"] < train_until]
+    if len(base) < 3:  # too little before train_until: fall back to the first 30% of windows
+        base = metrics.iloc[:max(3, int(len(metrics) * 0.3))]
     det = AnomalyDetector(NS2_FEATURES)
-    det.fit(metrics[metrics["t"] < train_until])
+    det.fit(base)
     scores = det.score(metrics)
-    # NS2 trace times start at 0, like the window times, so shift records to match
+    # trace times and window times both start at 0, so records are aligned to 0 as well
     inc = episodes(scores, recs.assign(ts=recs["ts"] - recs["ts"].min()), window, gap=0)
     routes = ns2src.path_changes(ev)
+    link_events = ns2src.read_link_events(trace)
     first_path = routes.groupby("fid")["t"].transform("min") == routes["t"]
-    changes = routes[~first_path]
+    changes = list(routes[~first_path]["t"]) + list(link_events["t"])
     for i, e in inc.iterrows():
-        if ((changes["t"] >= e["start_t"]) & (changes["t"] < e["end_t"])).any():
+        if any(e["start_t"] <= t < e["end_t"] for t in changes):
             inc.loc[i, ["type", "title"]] = ["reroute", "Link failure and rerouting"]
     links = ns2src.trace_links(ev)
     G = build_graph(pd.DataFrame(columns=recs.columns))
@@ -100,15 +111,22 @@ def analyze_ns2(trace: str, name: str | None = None, db: NetMindDB | None = None
                    drops=int(r["drops"]), hops=1, latency=1.0, measured=False)
     for n in G.nodes:
         G.nodes[n]["kind"] = "ns2-node"
+    flows_ns2 = ns2src.flow_summary(ev)
+    got = pk[pk["fate"] == "delivered"]
+    n_drop = int((pk["fate"] == "dropped").sum())
     db.save("protocols", run_id, protocol_distribution(recs))
     db.save("flows", run_id, flows(recs))
     _save_common(db, run_id, metrics, scores, inc, G, {
-        "overall": {"latency_ms": round(float(metrics["latency_ms"].mean()), 2),
-                    "loss_pct": round(100 * metrics["dropped"].sum() / max(metrics["packets"].sum(), 1), 2),
+        "overall": {"latency_ms": round(float(got["delay_ms"].mean()), 2) if len(got) else None,
+                    "loss_pct": round(100 * n_drop / (len(got) + n_drop), 2) if len(got) + n_drop else 0.0,
                     "throughput_mbps": round(float(metrics["throughput_mbps"].mean()), 4),
                     "jitter_ms": round(float(metrics["jitter_ms"].mean()), 2),
-                    "dropped": int(metrics["dropped"].sum())},
+                    "sent": int(len(pk)), "delivered": int(len(got)), "dropped": n_drop,
+                    "in_flight": int((pk["fate"] == "in_flight").sum()),
+                    "retransmissions": int(pk["retransmission"].sum())},
         "window_s": window, "routes": routes.to_dict("records"),
+        "link_events": link_events.to_dict("records"),
+        "ns2_flows": flows_ns2.to_dict("records"),
         "baseline": {k: round(v, 3) for k, v in det.baseline["median"].items()},
         "threshold": round(det.threshold, 3), "train_windows": det.baseline["train_windows"],
         "incident_count": int(len(inc))})
