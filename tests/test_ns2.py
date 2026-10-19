@@ -138,3 +138,17 @@ def test_tcl_scenario_static_checks():
     sys.path.insert(0, str(ROOT / "tests"))
     from check_tcl_static import check
     assert check() == []
+
+
+def test_compare_traces_cli_runs():
+    out = subprocess.run([sys.executable, str(ROOT / "ns2" / "compare_traces.py"), S, S],
+                         capture_output=True, text=True)
+    assert out.returncode == 0, out.stderr
+    for phase in ("normal", "UDP burst", "link down"):
+        assert phase in out.stdout
+
+
+def test_tcl_queue_option_keeps_droptail_default():
+    src = (ROOT / "ns2" / "netmind_scenario.tcl").read_text()
+    assert 'set qtype "DropTail"' in src and "$ns duplex-link $n2 $n3 1Mb 20ms $qtype" in src
+    assert src.count("DropTail") >= 5  # access and backup links stay DropTail

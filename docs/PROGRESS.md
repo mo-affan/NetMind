@@ -4,6 +4,8 @@ Newest first.
 
 | Date | Phase | What was done | Who |
 | --- | --- | --- | --- |
+| 2026-10-19 | Features | New analysis: TCP connection outcomes (established/refused/unanswered/reset, handshake time, likely scanners), DNS insights (lookups, unanswered, response time, top domains), host inventory (scope, role, services, traffic in/out), 0-100 network health score per window. Copilot answers questions about them; new dashboard page Hosts & services; health on every page header and the Performance page; `python -m netmind hosts`; API `/hosts`, `/connections`, `/dns`, `/insights`. NS2: optional RED queue on the bottleneck and `compare_traces.py` (RED run not executed yet; the default DropTail run uses the same commands as the executed version, but rerun it once to confirm) | Affan |
+| 2026-10-15 | NS2 | **Executed** `netmind_scenario.tcl` in NS2 on Ubuntu 24.04: all 5 checks passed (delay 43.0 → 103.1 ms during the burst, 0 → 21 drops, rerouted via n4 at 115.2 ms) | Affan |
 | 2026-10-15 | Dashboard | Redesigned the dashboard: new look (IBM Plex, teal theme), traffic-trace hero with incident bands, KPI cards with trends, Copilot panel on the Overview plus a full Copilot page, Incidents, Traffic explorer, Performance, link-failure simulator, run comparison, report/CSV export. Logic split into `dashboard/logic.py` with unit tests; AppTest tests for every page | Affan |
 | 2026-10-15 | Repair | Diagnosed the "missing implementation" on the laptop (stale clone, see below). Hardened: empty/short captures, repo-anchored paths, optional-package errors, `/health`, synthetic labelling, Streamlit width API; fewer false alarms (stricter forest threshold, 16 s minimum baseline); split requirements; Windows setup/run scripts; CLI, edge-case, API and dashboard tests; README, Review 2 guide and demo script | Affan |
 | 2026-10-15 | NS2 | Reviewed and fixed the NS2 scenario and trace parser; consistent metric definitions; standard-library lab checker; lab execution guide. Status: implemented, validated on a synthetic sample, **not yet executed in NS2** | Affan |
@@ -77,7 +79,7 @@ No false alarms in normal traffic across three random seeds (one extra window fl
 | --- | --- |
 | Implemented (scenario and parser reviewed, fixes made) | Done 2026-10-15 |
 | Validated (parser + pipeline on a sample trace) | Done 2026-10-15, on a **synthetic** trace, not NS2 output |
-| Executed (scenario run in NS2) | **Pending**: to be run in the college lab, see `docs/NS2_LAB_EXECUTION.md` |
+| Executed (scenario run in NS2) | **Done 2026-10-15** on Ubuntu 24.04 (team laptop); all 5 checks passed. RED variant: not run yet |
 
 ### NS2 review changes (2026-10-15)
 
@@ -95,6 +97,14 @@ No false alarms in normal traffic across three random seeds (one extra window fl
 | Link n2-n3 down | 7-8.5 s | 3 TCP segments lost and retransmitted; route n0-n2-n4-n3, delay ~112 ms; incident "Link failure and rerouting" |
 | Link up | 8.5 s | Route back to n0-n2-n3 |
 
-### Results from the real lab run
+### Results from the real NS2 run (2026-10-15, Ubuntu 24.04 on the team laptop)
 
-Not run yet. Fill in after the lab session: date, machine, Ubuntu and NS2 versions, the check_trace.py output, and the numbers above for the real trace.
+| Check (`check_trace.py`) | Result |
+| --- | --- |
+| No drops before the UDP burst (0.5-3 s) | PASS: 0 drops |
+| Drops during the UDP burst (3-6 s) | PASS: 21 drops |
+| Delay higher during the burst | PASS: 43.0 ms → 103.1 ms |
+| Traffic rerouted via n4 during the link failure (7-8.5 s) | PASS |
+| TCP delay higher on the backup path | PASS: 115.2 ms |
+
+Still to record: the NS2 version and the trace file itself in `ns2/results/`. NAM did not open on that machine (it could not find the Tk library `tk.tcl`); see the checklist's Appendix B.

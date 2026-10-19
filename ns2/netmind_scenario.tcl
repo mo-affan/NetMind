@@ -23,6 +23,8 @@
 #
 # Run:     ns netmind_scenario.tcl            -> netmind.tr, netmind.nam
 #          ns netmind_scenario.tcl run2       -> run2.tr, run2.nam  (optional output name)
+#          ns netmind_scenario.tcl red RED    -> red.tr, red.nam with a RED queue on the bottleneck
+#                                                (optional second argument: DropTail, the default, or RED)
 # Output files are written to the directory you run the command from.
 
 set ns [new Simulator]
@@ -37,6 +39,22 @@ if {$argc >= 1} {
 } else {
     set out "netmind"
 }
+# Optional second argument: queue type on the n2-n3 bottleneck (DropTail or RED)
+if {$argc >= 2} {
+    set qtype [lindex $argv 1]
+} else {
+    set qtype "DropTail"
+}
+if {$qtype != "DropTail" && $qtype != "RED"} {
+    puts "Queue type must be DropTail or RED, not '$qtype'"
+    exit 1
+}
+# RED thresholds sized for the 10-packet queue (the defaults, 5 and 15, assume a larger queue).
+# These settings only affect RED queues; the DropTail run is unchanged.
+Queue/RED set thresh_ 3
+Queue/RED set maxthresh_ 8
+Queue/RED set linterm_ 10
+
 set tracefile [open $out.tr w]
 $ns trace-all $tracefile
 set namfile [open $out.nam w]
@@ -61,7 +79,7 @@ $n4 label "Backup"
 # ---- Links ----
 $ns duplex-link $n0 $n2 2Mb 10ms DropTail
 $ns duplex-link $n1 $n2 2Mb 10ms DropTail
-$ns duplex-link $n2 $n3 1Mb 20ms DropTail
+$ns duplex-link $n2 $n3 1Mb 20ms $qtype
 $ns duplex-link $n2 $n4 1Mb 40ms DropTail
 $ns duplex-link $n4 $n3 1Mb 40ms DropTail
 
@@ -140,5 +158,5 @@ proc finish {} {
     exit 0
 }
 
-puts "NetMind NS2 scenario: running 10 s simulation, output base name '$out'"
+puts "NetMind NS2 scenario: running 10 s simulation, output base name '$out', bottleneck queue $qtype"
 $ns run

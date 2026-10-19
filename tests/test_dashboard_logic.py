@@ -119,3 +119,24 @@ def test_fmt_seconds():
     assert logic.fmt_seconds(4.0) == "4 s"
     assert logic.fmt_seconds(None) == "? s"
     assert logic.verdict({"incidents": [{}, {}, {}]}, 179.991) == ("3 incidents in 180 s", "bad")
+
+
+
+def test_health_badge_and_insight_cards(demo_run):
+    state, *_ = demo_run
+    badge = logic.health_badge_html(state["health"])
+    assert f"<b>{state['health']['score']:g}</b>/100" in badge and "Fair" in badge
+    assert logic.health_badge_html({}) == ""
+    cards = {c["label"]: c for c in logic.insight_cards(state["connections"], state["dns"])}
+    assert cards["Connection success"]["tone"] == "bad"  # the scan's refused attempts
+    assert cards["DNS lookups"]["value"] == f"{state['dns']['queries']:,}"
+    assert logic.insight_cards({}, {}) == []
+
+
+def test_service_table_groups_rare_ports(tmp_path, demo):
+    from netmind.analyzer.insights import tcp_connections
+    t = logic.service_table(tcp_connections(demo[0]))
+    assert t["Attempts"].sum() == len(tcp_connections(demo[0]))
+    assert t.iloc[0]["Service"].startswith("other ports")  # 1000 scanned ports in one row
+    https = t.set_index("Service").loc["HTTPS"]
+    assert https["Success %"] > 95

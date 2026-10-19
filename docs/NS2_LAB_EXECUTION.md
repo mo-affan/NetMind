@@ -8,7 +8,7 @@ This guide is for running `ns2/netmind_scenario.tcl` on a lab machine that has N
 | --- | --- | --- |
 | **Implemented** | TCL scenario and trace parser reviewed and fixed | Done (2026-10-15) |
 | **Validated** | Parser and NetMind pipeline tested on a sample trace | Done, on a **synthetic** sample (`tests/data/sample_ns2.tr`, produced by a Python model, not by NS2) |
-| **Executed** | `netmind_scenario.tcl` actually run with NS2 | **Not done yet.** Mark it done only after the steps below succeed in the lab and the evidence is committed |
+| **Executed** | `netmind_scenario.tcl` actually run with NS2 | **Done 2026-10-15** on Ubuntu 24.04 (the team laptop): all 5 checks of `check_trace.py` passed (delay 43.0 ms before the burst, 103.1 ms during it; 0 drops before, 21 during; TCP rerouted via n4 at 115.2 ms). The RED variant (section 9a) has **not been run yet** |
 
 ## What the scenario does
 
@@ -82,7 +82,7 @@ ns netmind_scenario.tcl 2>&1 | tee ns_run_output.txt
 Expected console output (the timing lines come from the script):
 
 ```
-NetMind NS2 scenario: running 10 s simulation, output base name 'netmind'
+NetMind NS2 scenario: running 10 s simulation, output base name 'netmind', bottleneck queue DropTail
 t= 0.50 s  TCP flow n0 -> n3 starts
 t= 3.00 s  UDP burst n1 -> n3 starts (congestion expected)
 t= 6.00 s  UDP burst stops
@@ -216,6 +216,27 @@ Definitions used by every NetMind tool: a packet is **sent** at its first `+` at
 | Distance Vector | `grep -c rtProtoDV netmind.tr` | > 0 (routing messages exchanged) |
 
 Exact numbers will differ from the synthetic sample; the pattern is what matters. Write the real numbers into `docs/PROGRESS.md`.
+
+## 9a. Optional: DropTail vs RED on the bottleneck
+
+The script takes an optional second argument, the queue type on the n2-n3 bottleneck: `DropTail` (the default, used above) or `RED` (Random Early Detection). RED drops packets early, at random, once the average queue passes `thresh_` (3 packets here), and always above `maxthresh_` (8), so the queue stays shorter than with DropTail, which only drops when the queue is full.
+
+```bash
+cd ~/netmind_ns2
+cp ~/NetMind/ns2/compare_traces.py .          # next to check_trace.py (it uses it)
+ns netmind_scenario.tcl droptail DropTail     # droptail.tr
+ns netmind_scenario.tcl red RED               # red.tr
+python3 compare_traces.py droptail.tr red.tr  # phase-by-phase comparison
+```
+
+| What to compare | Expected |
+| --- | --- |
+| Delay during the UDP burst (3-6 s) | Lower with RED (shorter queue) |
+| Drops during the burst | Spread over both flows with RED, mostly when the queue is full with DropTail |
+| Normal period (0.5-3 s) | Same for both: no drops |
+| Link failure (7-8.5 s) | Same rerouting via n4 for both |
+
+Then analyse both in NetMind (`python -m netmind ns2 droptail.tr` and `python -m netmind ns2 red.tr`) and compare them on the dashboard's **Compare runs** page. `check_trace.py red.tr` may report drops before the burst if RED drops early; that check was written for DropTail.
 
 ## 10. Common errors and fixes
 

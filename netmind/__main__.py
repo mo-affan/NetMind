@@ -53,6 +53,10 @@ def _print_report(db, run_id: int) -> None:
           f"hosts {s.get('hosts')}  flows {s.get('flows')}")
     print("Protocols:", s.get("protocols"))
     print("Overall:", {k: v for k, v in o.items() if v is not None})
+    h = st.get("health") or {}
+    if h.get("score") is not None:
+        print(f"Health score: {h['score']}/100 ({h['grade']}), worst window {h['worst']} at "
+              f"t={h['worst_t']:g} s")
     m = db.load("metrics", run_id)
     if not m.empty:
         cols = [c for c in ("t", "pps", "throughput_mbps", "latency_ms", "jitter_ms", "loss_pct",
@@ -175,6 +179,46 @@ def cmd_report(args):
         print("No runs yet. Start with:  python -m netmind demo")
         return
     _print_report(db, run_id)
+
+
+def cmd_hosts(args):
+    from netmind.pipeline import get_state
+    db = _db(args)
+    run_id = args.run or db.latest_run_id()
+    if run_id is None:
+        print("No runs yet. Start with:  python -m netmind demo")
+        return
+    st = get_state(db, run_id)
+    print(f"=== Run {run_id}: {st['run']['name']} ({st['run']['source']}) ===")
+    inv = db.load("hosts", run_id)
+    if inv.empty:
+        print("No host inventory stored for this run (it was made by an older NetMind version).")
+    else:
+        print("\nHosts:")
+        cols = ["host", "scope", "role", "services", "packets_out", "bytes_out", "packets_in",
+                "bytes_in", "peers"]
+        print(inv[[c for c in cols if c in inv.columns]].fillna("").to_string(index=False))
+    c = st.get("connections") or {}
+    if c.get("attempts"):
+        print(f"\nTCP connections: {c['attempts']} attempts, {c['established']} established, "
+              f"{c['refused']} refused, {c['unanswered']} unanswered, {c['reset']} reset "
+              f"({c['success_pct']}% success); median handshake {c['handshake_ms_median']} ms")
+        for f in c.get("top_failing", []):
+            print(f"  failed from {f['client']}: {f['failed']} attempts to {f['ports']} ports "
+                  f"on {f['targets']} host(s)")
+        if c.get("likely_scanners"):
+            print("  likely scanner(s):", ", ".join(c["likely_scanners"]))
+    d = st.get("dns") or {}
+    if d.get("queries"):
+        print(f"\nDNS: {d['queries']} lookups, {d['unanswered']} unanswered, median response "
+              f"{d['response_ms_median']} ms")
+        top = db.load("dns", run_id)
+        if not top.empty:
+            print(top.to_string(index=False))
+    h = st.get("health") or {}
+    if h.get("score") is not None:
+        print(f"\nHealth score: {h['score']}/100 ({h['grade']}); {h['poor_windows']} of {h['windows']} "
+              f"windows below 70; average penalty points {h['penalty_points']}")
 
 
 def cmd_ask(args):
@@ -304,6 +348,9 @@ def main(argv=None):
     r.add_argument("--run", type=int)
     r.set_defaults(func=cmd_report)
 
+    hs = sub.add_parser("hosts", help="host inventory, TCP connection outcomes, DNS and health")
+    hs.add_argument("--run", type=int)
+    hs.set_defaults(func=cmd_hosts)
     a = sub.add_parser("ask", help="ask the Copilot about a run")
     a.add_argument("question")
     a.add_argument("--run", type=int)

@@ -21,7 +21,8 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 DATA_DIR = REPO_ROOT / "data"
 DEFAULT_DB = Path(os.environ.get("NETMIND_DB", DATA_DIR / "netmind.db"))
 
-TABLES = ["metrics", "anomalies", "incidents", "nodes", "links", "flows", "protocols", "rtt"]
+TABLES = ["metrics", "anomalies", "incidents", "nodes", "links", "flows", "protocols", "rtt",
+          "hosts", "connections", "dns"]
 
 
 class NetMindDB:

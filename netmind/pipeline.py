@@ -11,7 +11,9 @@ from pathlib import Path
 
 import pandas as pd
 
-from netmind.analyzer import flows, protocol_distribution, summary, top_talkers
+from netmind.analyzer import (connection_summary, dns_summary, flows, health_summary, host_inventory,
+                              protocol_distribution, summary, tcp_connections, top_talkers,
+                              window_health)
 from netmind.anomaly import (MIN_TRAIN_WINDOWS, AnomalyDetector, InsufficientDataError, detect,
                              episodes, window_features)
 from netmind.capture import ns2 as ns2src
@@ -37,6 +39,9 @@ def _no_detection(feats: pd.DataFrame, reason: str,
 
 
 def _save_common(db, run_id, metrics, scores, incidents, G, extra_summary):
+    h = window_health(metrics, scores, extra_summary.get("baseline", {}))
+    metrics = metrics.assign(health=h["health"].values)
+    extra_summary = {**extra_summary, "health": health_summary(h)}
     db.save("metrics", run_id, metrics)
     db.save("anomalies", run_id, scores)
     db.save("nodes", run_id, nodes_frame(G))
@@ -79,6 +84,11 @@ def analyze_packets(df: pd.DataFrame, name: str, source: str = "pcap", db: NetMi
     db.save("protocols", run_id, protocol_distribution(df))
     db.save("flows", run_id, flows(df).head(500))
     db.save("rtt", run_id, rtt)
+    conns = tcp_connections(df)
+    db.save("connections", run_id, conns.head(5000))
+    db.save("hosts", run_id, host_inventory(df, conns))
+    dns = dns_summary(df)
+    db.save("dns", run_id, pd.DataFrame(dns.get("top_domains", [])))
     _save_common(db, run_id, metrics, scores, inc, G, {
         "overall": overall(df, link_capacity_mbps), "window_s": window,
         "anomaly_status": status,
@@ -86,7 +96,8 @@ def analyze_packets(df: pd.DataFrame, name: str, source: str = "pcap", db: NetMi
         "threshold": round(det.threshold, 3) if det else None,
         "train_windows": det.baseline["train_windows"] if det else 0,
         "top_talkers": top_talkers(df).to_dict("records"), "incident_count": int(len(inc)),
-        "link_capacity_mbps": link_capacity_mbps})
+        "link_capacity_mbps": link_capacity_mbps, "connections": connection_summary(conns),
+        "dns": {k: v for k, v in dns.items() if k != "top_domains"}})
     if save_model and det is not None:  # saved next to the database it belongs to
         models = Path(db.path).parent / "models"
         models.mkdir(parents=True, exist_ok=True)
@@ -148,6 +159,7 @@ def analyze_ns2(trace: str, name: str | None = None, db: NetMindDB | None = None
     n_drop = int((pk["fate"] == "dropped").sum())
     db.save("protocols", run_id, protocol_distribution(recs))
     db.save("flows", run_id, flows(recs))
+    db.save("hosts", run_id, host_inventory(recs))
     _save_common(db, run_id, metrics, scores, inc, G, {
         "overall": {"latency_ms": round(float(got["delay_ms"].mean()), 2) if len(got) else None,
                     "loss_pct": round(100 * n_drop / (len(got) + n_drop), 2) if len(got) + n_drop else 0.0,
@@ -190,4 +202,5 @@ def get_state(db: NetMindDB, run_id: int | None = None) -> dict:
             "summary": traffic, "overall": s.get("overall", {}), "baseline": s.get("baseline", {}),
             "latest_window": latest, "incidents": incidents, "routes": s.get("routes", []),
             "anomaly_status": s.get("anomaly_status", {"state": "ok"}),
-            "top_talkers": s.get("top_talkers", [])}
+            "top_talkers": s.get("top_talkers", []), "health": s.get("health", {}),
+            "connections": s.get("connections", {}), "dns": s.get("dns", {})}

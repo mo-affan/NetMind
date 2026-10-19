@@ -61,6 +61,14 @@ code, .nm-mono { font-family: var(--nm-mono); }
   border-color: color-mix(in srgb, var(--nm-green) 35%, transparent); }
 .nm-verdict.info { background: color-mix(in srgb, var(--nm-amber) 15%, transparent);
   border-color: color-mix(in srgb, var(--nm-amber) 45%, transparent); }
+.nm-head-right { display: flex; gap: 0.6rem; align-items: center; flex-wrap: wrap; }
+.nm-health { font-size: 0.95rem; padding: 0.42rem 0.8rem; border-radius: 8px; border: 1px solid var(--nm-line); }
+.nm-health b { font-size: 1.1rem; }
+.nm-health.ok { border-color: color-mix(in srgb, var(--nm-green) 45%, transparent); }
+.nm-health.ok b { color: var(--nm-green); }
+.nm-health.info { border-color: color-mix(in srgb, var(--nm-amber) 55%, transparent); }
+.nm-health.bad { border-color: color-mix(in srgb, var(--nm-red) 45%, transparent); }
+.nm-health.bad b { color: var(--nm-red); }
 .nm-trace-cap { color: var(--nm-muted); font-size: 0.85rem; margin: 0.1rem 0 0.8rem; }
 
 /* KPI strip */

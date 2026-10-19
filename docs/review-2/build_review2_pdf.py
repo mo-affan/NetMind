@@ -165,7 +165,7 @@ A(table([
     ["Part", "Modules", "Presenter"],
     ["Input and traffic analysis", "M1 capture (Scapy, pcap, synthetic), M2 protocols and flows", "Hardik"],
     ["Topology and routing, storage", "M5 graph, Dijkstra, LS, DV; M6 SQLite", "Hardik"],
-    ["Dashboard", "M9 Streamlit dashboard (8 pages)", "Hardik (lead)"],
+    ["Dashboard", "M9 Streamlit dashboard (9 pages)", "Hardik (lead)"],
     ["Performance and anomaly detection", "M4 metrics; M3 Isolation Forest, deviation check, incidents", "Affan"],
     ["Knowledge and Copilot", "M7 RAG; M8 Copilot (offline, Claude, Ollama)", "Affan"],
     ["NS2 simulation", "TCL scenario, trace parser, checker, lab run", "Affan"],
@@ -233,7 +233,7 @@ mods = [
      "Backends: offline rule-based (default, deterministic), Claude API, local Ollama; falls back to "
      "offline if the LLM is unreachable. Cites sources. Advisory only."),
     ("M9 Dashboard", "netmind/dashboard/",
-     "Streamlit, 8 pages (section 8), light and dark themes; also the CLI and the REST API."),
+     "Streamlit, 9 pages (section 8), light and dark themes; also the CLI and the REST API."),
     ("NS2", "ns2/",
      "netmind_scenario.tcl, trace parser (parse_trace.py), standard-library checker (check_trace.py), "
      "lab guide (docs/NS2_LAB_EXECUTION.md). Details in section 7."),
@@ -253,6 +253,10 @@ A(table([
 A(Spacer(1, 4))
 story += bullets([
     "13,511 packets, 9 hosts, 1,731 flows; 90 windows, 23 flagged (all inside the three events).",
+    "<b>Health score</b> 82.4/100 (Fair) for the demo, worst window 0 at 76 s (congestion); normal-only "
+    "traffic scores 99.5 (Good).",
+    "<b>TCP connections:</b> 1,363 attempts, 363 established, 1,000 refused, all from 192.168.1.66 "
+    "(flagged as a likely scanner). <b>DNS:</b> 364 lookups, 4 unanswered, median 29.3 ms.",
     "All three events found, with the right type, time and source.",
     "<b>False alarms</b> on normal-only synthetic traffic (5 lengths × 10 seeds, about 1,350 windows): "
     "3 windows flagged, under 0.5%. Before the tuning it was 18.",
@@ -312,7 +316,9 @@ A(table([
     ["Incidents", "Anomaly score over time; per incident: severity, what stood out vs normal, zoomed chart, "
                   "\"Ask the Copilot about this incident\""],
     ["Traffic", "Packets and bytes by protocol; searchable flow table (try 192.168.1.66)"],
-    ["Performance", "Latency, jitter, loss, throughput, packets/s, retransmissions with the normal level; RTT by type"],
+    ["Hosts & services", "Every host with scope, role and services; TCP connection outcomes (192.168.1.66 "
+                         "called out as a likely scanner: 1,000 refused attempts); DNS lookups and top domains"],
+    ["Performance", "Health score, latency, jitter, loss, throughput, packets/s, retransmissions with the normal level; RTT by type"],
     ["Topology & routing", "Host graph, Dijkstra path, Link State vs Distance Vector table; "
                            "<b>Simulate a link failure</b> shows which routes change and DV rounds"],
     ["Copilot", "Chat with suggested and per-incident questions, sources, and the exact prompt given to the model"],
@@ -413,7 +419,9 @@ story += bullets([
     "NS2 Simulation Module added, as the faculty suggested; now executed in NS2 with all checks passing.",
     "Full implementation of all 9 modules, CLI, REST API and dashboard; automated tests.",
     "Fewer false alarms; honest \"not enough traffic\" instead of \"no anomalies\" for short captures.",
-    "Redesigned dashboard with 8 pages, Copilot panel, link-failure simulator, light and dark themes.",
+    "Redesigned dashboard with 9 pages, Copilot panel, link-failure simulator, light and dark themes.",
+    "New analysis: TCP connection outcomes, DNS insights, host inventory with roles and services, and a "
+    "0-100 health score; NS2 scenario can also run with a RED queue (compare_traces.py).",
 ])
 
 # ---------------------------------------------------------------- appendix A: run everything
@@ -438,6 +446,7 @@ A(table([
     ["Routing", "python -m netmind routes --from 192.168.1.10 --to 8.8.8.8", "Dijkstra path; Link State vs Distance Vector tables"],
     ["Routing by hops", "python -m netmind routes --from 192.168.1.10 --to 8.8.8.8 --weight hops", "Same, every link costs 1"],
     ["Analyse the NS2 trace", "python -m netmind ns2 ns2\\results\\netmind.tr", "Congestion 3-6 s and link failure / reroute via n4"],
+    ["Hosts, connections, DNS", "python -m netmind hosts", "9 hosts with roles; 1,363 TCP attempts, 1,000 refused from 192.168.1.66; 364 DNS lookups; health 82.4/100"],
     ["List runs / report", "python -m netmind runs<br/>python -m netmind report --run 1", "Stored runs; metrics and incidents of one run"],
     ["REST API", "python -m netmind api", "http://127.0.0.1:8000/docs (interactive API page)"],
     ["Live capture (optional)", "python -m netmind capture --duration 60", "Needs Npcap and PowerShell run as Administrator"],
@@ -486,7 +495,7 @@ A(code("""cd ~/netmind_ns2
 clear                                   # start from an empty screen
 ns netmind_scenario.tcl demo_run        # writes demo_run.tr and demo_run.nam"""))
 A(P("Expected output, and nothing else:"))
-A(code("""NetMind NS2 scenario: running 10 s simulation, output base name 'demo_run'
+A(code("""NetMind NS2 scenario: running 10 s simulation, output base name 'demo_run', bottleneck queue DropTail
 t= 0.50 s  TCP flow n0 -> n3 starts
 t= 3.00 s  UDP burst n1 -> n3 starts (congestion expected)
 t= 6.00 s  UDP burst stops

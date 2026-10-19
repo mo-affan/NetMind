@@ -12,6 +12,10 @@ Interactive docs: http://127.0.0.1:8000/docs
     GET  /runs/{id}/incidents       grouped incidents
     GET  /runs/{id}/protocols       protocol distribution
     GET  /runs/{id}/flows           top flows
+    GET  /runs/{id}/hosts           host inventory: scope, role, services, traffic in/out
+    GET  /runs/{id}/connections     every TCP connection attempt and its outcome
+    GET  /runs/{id}/dns             most-queried domains with response times
+    GET  /runs/{id}/insights        health score, connection and DNS summaries
     GET  /runs/{id}/topology        nodes and links
     GET  /runs/{id}/path?src=&dst=  Dijkstra shortest path
     GET  /runs/{id}/routing?node=   Link State and Distance Vector tables for a node
@@ -83,8 +87,15 @@ def _table(name: str):
     return handler
 
 
-for _name in ("metrics", "anomalies", "protocols", "flows"):
+for _name in ("metrics", "anomalies", "protocols", "flows", "hosts", "connections", "dns"):
     app.get(f"/runs/{{run_id}}/{_name}")(_table(_name))
+
+
+@app.get("/runs/{run_id}/insights")
+def insights(run_id: int):
+    _check(run_id)
+    st = get_state(db(), run_id)
+    return {k: st.get(k, {}) for k in ("health", "connections", "dns")}
 
 
 @app.get("/runs/{run_id}/incidents")

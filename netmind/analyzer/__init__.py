@@ -6,5 +6,9 @@ Classifies packets (TCP, UDP, ICMP, DNS, HTTP, HTTPS), groups them into flows by
 Owner: Hardik. Phase: 1.
 """
 from .traffic import protocol_distribution, flows, add_flow_ids, top_talkers, summary, label
+from .insights import (tcp_connections, connection_summary, dns_summary, host_inventory,
+                       window_health, health_summary)
 
-__all__ = ["protocol_distribution", "flows", "add_flow_ids", "top_talkers", "summary", "label"]
+__all__ = ["protocol_distribution", "flows", "add_flow_ids", "top_talkers", "summary", "label",
+           "tcp_connections", "connection_summary", "dns_summary", "host_inventory",
+           "window_health", "health_summary"]

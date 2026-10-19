@@ -225,3 +225,43 @@ def topology_chart(G: nx.Graph, path_edges: set = frozenset(), failed: tuple | N
         if t.mode == "markers+text":
             t.showlegend = True
     return fig
+
+
+OUTCOME_COLOURS = {"established": BLUE, "reset": AQUA, "refused": ORANGE, "unanswered": MUTED}
+
+
+def outcome_bars(conns: pd.DataFrame, top: int = 8) -> go.Figure:
+    """TCP connection outcomes per client (stacked), clients with the most attempts first."""
+    if conns.empty:
+        return style(go.Figure(), 120)
+    t = conns.groupby(["client", "state"]).size().unstack(fill_value=0)
+    t = t.loc[t.sum(axis=1).sort_values(ascending=False).head(top).index].iloc[::-1]
+    fig = go.Figure()
+    for state in ("established", "reset", "refused", "unanswered"):
+        if state in t.columns:
+            fig.add_trace(go.Bar(y=t.index, x=t[state], orientation="h", name=state,
+                                 marker=dict(color=OUTCOME_COLOURS[state]),
+                                 hovertemplate="%{y}: %{x:,} " + state + "<extra></extra>"))
+    style(fig, 70 + 34 * len(t), legend=True)
+    fig.update_layout(barmode="stack", hovermode="closest", margin=dict(l=8, r=8, t=36, b=8))
+    fig.update_xaxes(title_text="connection attempts", title_font=dict(size=11, color=MUTED),
+                     showgrid=True, gridcolor=GRID)
+    fig.update_yaxes(showgrid=False, tickfont=dict(size=12, family="IBM Plex Mono, Consolas, monospace"))
+    return fig
+
+
+def host_bytes(inv: pd.DataFrame, top: int = 10) -> go.Figure:
+    """Bytes sent and received per host, busiest first."""
+    if inv.empty:
+        return style(go.Figure(), 120)
+    t = inv.head(top).iloc[::-1]
+    fig = go.Figure()
+    fig.add_trace(go.Bar(y=t["host"], x=t["bytes_out"], orientation="h", name="sent",
+                         marker=dict(color=BLUE), hovertemplate="%{y} sent %{x:,} bytes<extra></extra>"))
+    fig.add_trace(go.Bar(y=t["host"], x=t["bytes_in"], orientation="h", name="received",
+                         marker=dict(color=ORANGE), hovertemplate="%{y} received %{x:,} bytes<extra></extra>"))
+    style(fig, 80 + 40 * len(t), legend=True)
+    fig.update_layout(barmode="group", hovermode="closest", margin=dict(l=8, r=8, t=36, b=8))
+    fig.update_xaxes(title_text="bytes", title_font=dict(size=11, color=MUTED), showgrid=True, gridcolor=GRID)
+    fig.update_yaxes(showgrid=False, tickfont=dict(size=12, family="IBM Plex Mono, Consolas, monospace"))
+    return fig

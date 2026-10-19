@@ -13,7 +13,7 @@ Computer Networks Lab (BCSE308P) project, VIT Vellore.
 
 Network monitoring tools show raw numbers (latency, packet loss, connections) but leave the interpretation to the user. NetMind:
 
-1. **Measures.** Reads traffic, identifies protocols (TCP, UDP, ICMP, DNS, HTTP, HTTPS) and calculates latency, throughput, packet loss and jitter for every time window.
+1. **Measures.** Reads traffic, identifies protocols (TCP, UDP, ICMP, DNS, HTTP, HTTPS) and calculates latency, throughput, packet loss and jitter for every time window. It follows every TCP connection attempt (established, refused, unanswered, reset), matches DNS lookups to their answers, builds an inventory of hosts with their roles and services, and gives every window a 0-100 health score.
 2. **Detects.** An Isolation Forest model plus a deviation-from-normal check flag unusual windows, which are grouped into incidents (congestion, port scan, flood, link failure).
 3. **Explains.** A Copilot answers questions using the measured data and a networking knowledge base (RAG). It works offline by default; Claude or a local Ollama model can be plugged in. It only advises and never changes the network.
 
@@ -30,7 +30,7 @@ NS2 trace ──────┘                     analysis    └─ anomaly d
 | Part | Status |
 | --- | --- |
 | Synthetic demo, traffic analysis, metrics, anomaly detection, incidents, SQLite, RAG, offline Copilot, topology/routing, CLI | Working; covered by tests |
-| NS2 trace analysis | Working on a **synthetic** sample trace; the TCL scenario has **not yet been run in NS2** (see `docs/NS2_LAB_EXECUTION.md`) |
+| NS2 scenario and trace analysis | Scenario **executed in NS2** on 2026-10-15 (Ubuntu 24.04), all 5 checks passed; analysis also tested on a synthetic sample trace. RED-queue variant added 2026-10-19, not yet run (see `docs/NS2_LAB_EXECUTION.md`) |
 | Dashboard, REST API, pcap reading | Implemented; their tests run only where Streamlit / FastAPI / Scapy are installed (see `docs/PROGRESS.md` for what was verified where) |
 | Live capture | Implemented; needs Scapy, Npcap and an Administrator terminal; not covered by automated tests |
 | Claude / Ollama Copilot backends | Implemented; optional; tests always use the offline backend |
@@ -95,7 +95,8 @@ or `powershell -ExecutionPolicy Bypass -File scripts\run_demo.ps1 -Dashboard`.
 | Overview | The whole run as one traffic trace with incident bands, a verdict, six headline numbers with trend lines, latency and loss over time, protocols, top talkers, and the Copilot chat panel |
 | Incidents | Anomaly score over time; per incident: severity, the features that stood out against normal, a zoomed chart and an "Ask the Copilot about this incident" button |
 | Traffic | Packets and bytes by protocol; searchable, filterable flow table and the biggest flows |
-| Performance | Latency, jitter, loss, throughput, packets/s and retransmissions against their normal level; round-trip times by measurement type |
+| Hosts & services | Every host with its scope, role and the services it answered on; TCP connection outcomes per client and per service (a likely port scanner is called out); DNS lookups, response times and the most-queried domains |
+| Performance | Health score, latency, jitter, loss, throughput, packets/s and retransmissions against their normal level; round-trip times by measurement type |
 | Topology & routing | Host graph, Dijkstra path, Link State vs Distance Vector tables, and a link-failure simulator showing which routes change |
 | Copilot | Full chat with suggested questions, per-incident questions, sources, and the exact prompt the model was given |
 | Compare runs | Two runs side by side (for example the demo vs normal-only traffic) |
@@ -115,10 +116,11 @@ The demo's traffic is **generated, not captured**: 180 s of normal browsing, DNS
 | `python -m netmind interfaces` | List capture interfaces |
 | `python -m netmind ns2 TRACE.tr` | Analyse an NS2 trace (no NS2 needed) |
 | `python -m netmind runs` / `report [--run N]` | List runs / print a run's metrics and incidents |
+| `python -m netmind hosts [--run N]` | Host inventory (scope, role, services), TCP connection outcomes, DNS and health score |
 | `python -m netmind ask "QUESTION" [--run N] [--show-prompt]` | Ask the Copilot |
 | `python -m netmind routes --from A --to B [--weight hops]` | Dijkstra path; Link State vs Distance Vector tables |
 | `python -m netmind dashboard [--port 8501]` | Streamlit dashboard |
-| `python -m netmind api [--port 8000]` | REST API; docs at http://127.0.0.1:8000/docs, health at `/health` |
+| `python -m netmind api [--port 8000]` | REST API; docs at http://127.0.0.1:8000/docs, health at `/health`; per run also `/hosts`, `/connections`, `/dns`, `/insights` |
 | `python -m netmind --help` / `--version` | Help / version |
 
 The database is `data\netmind.db` in the repository regardless of the folder you run from; set `NETMIND_DB` (or `--db`) to use another file.
@@ -142,6 +144,10 @@ The database is `data\netmind.db` in the repository regardless of the folder you
 | Jitter | Mean absolute change between consecutive RTTs on the same path | Same, within each flow |
 | Throughput | Bytes in the window x 8 / window length | Bytes delivered in the window |
 
+**Health score.** Each window starts at 100 and loses up to 40 points for latency above normal (all 40 at 4x normal), up to 40 for loss (all 40 at 5%) and 20 if the anomaly detector flagged it; the run's score is the average (90+ Good, 70-90 Fair, below 70 Poor).
+
+**TCP connections and DNS.** Each SYN is followed: established (SYN-ACK came back), refused (RST), unanswered (nothing) or reset (established, then RST). A host with 20+ failed attempts to 20+ different ports is marked as a likely scanner. DNS queries are matched to responses by transaction id.
+
 **Anomaly detection.** 2-second windows (0.5 s for NS2) with 10 features: packets/s, average packet size, connections, connection duration, distinct destination ports, TCP/UDP ratio, bytes/s, latency, loss, retransmissions. The first part of the capture (default 30%, at least 16 s) is the normal baseline. A window is flagged when a feature is 6+ units of normal spread (robust z-score) from its normal value, or when the Isolation Forest score is above its threshold *and* some feature is 4+ units away. With less than 16 s of baseline, detection is skipped and reported as "not enough traffic" rather than "normal". On synthetic traffic (10 seeds) all injected events were detected and under 0.5% of normal windows were flagged.
 
 ## Tests
@@ -160,6 +166,8 @@ NS2 is only needed to *run* the scenario, in the college lab. Analysing a trace 
 python -m netmind ns2 path\to\netmind.tr      # full analysis
 python ns2\check_trace.py path\to\netmind.tr  # quick check, standard library only
 ```
+
+The scenario can also run with a RED queue on the bottleneck (`ns netmind_scenario.tcl red RED`); `ns2/compare_traces.py droptail.tr red.tr` compares the two phase by phase.
 
 Lab instructions: [`docs/NS2_LAB_EXECUTION.md`](docs/NS2_LAB_EXECUTION.md). Scenario and definitions: [`ns2/README.md`](ns2/README.md).
 

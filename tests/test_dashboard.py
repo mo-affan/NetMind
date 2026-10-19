@@ -7,8 +7,8 @@ import pytest
 from conftest import ROOT
 
 APP = str(ROOT / "netmind" / "dashboard" / "app.py")
-PAGES = ["Overview", "Incidents", "Traffic", "Performance", "Topology & routing", "Copilot",
-         "Compare runs", "Data & export"]
+PAGES = ["Overview", "Incidents", "Traffic", "Hosts & services", "Performance", "Topology & routing",
+         "Copilot", "Compare runs", "Data & export"]
 
 
 @pytest.fixture
@@ -56,6 +56,20 @@ def test_overview_shows_verdict_kpis_and_copilot(demo_app):
     assert page.count('class="nm-kpi"') == 6
     assert "Ask the Copilot" in page
     assert any(b.key == "ov_sugg_0" for b in at.button)
+
+
+def test_header_shows_health_score(demo_app):
+    assert "Health <b>" in _html(demo_app)
+
+
+def test_hosts_page_shows_scanner_and_inventory(demo_app):
+    at = demo_app
+    at.sidebar.radio[0].set_value("Hosts & services").run()
+    assert not at.exception
+    assert any("192.168.1.66" in w.value for w in at.warning)
+    assert len(at.dataframe) >= 3  # hosts, services, DNS
+    _button(at, "hs_ask").click().run()
+    assert at.sidebar.radio[0].value == "Copilot" and len(at.chat_message) == 2
 
 
 def test_every_page_renders(demo_app):

@@ -92,6 +92,20 @@ def state_to_text(state: dict) -> str:
         lines.append("Latest window: " + ", ".join(f"{k}={v}" for k, v in cur.items()))
     for r in state.get("routes", []):
         lines.append(f"Route change at t={r['t']} s for flow {r['fid']}: {r['path']}")
+    h = state.get("health") or {}
+    if h.get("score") is not None:
+        lines.append(f"Health score: {h['score']}/100 ({h['grade']}); worst window {h['worst']} at "
+                     f"t={h['worst_t']} s; {h['poor_windows']} of {h['windows']} windows below 70")
+    c = state.get("connections") or {}
+    if c.get("attempts"):
+        lines.append(f"TCP connections: {c['attempts']} attempts, {c['established']} established, "
+                     f"{c['refused']} refused (RST), {c['unanswered']} unanswered, {c['reset']} reset; "
+                     f"success {c['success_pct']}%; median handshake {c['handshake_ms_median']} ms"
+                     + (f"; likely scanners: {', '.join(c['likely_scanners'])}" if c.get("likely_scanners") else ""))
+    d = state.get("dns") or {}
+    if d.get("queries"):
+        lines.append(f"DNS: {d['queries']} lookups from {d['clients']} clients, {d['unanswered']} "
+                     f"unanswered, median response {d['response_ms_median']} ms")
     return "\n".join(lines)
 
 
@@ -196,6 +210,50 @@ def _first_sentences(text: str, n: int = 2) -> str:
     return " ".join(re.split(r"(?<=[.!?])\s+", text)[:n])
 
 
+INSIGHT_WORDS = {
+    "dns": ["dns", "domain", "lookup", "resolv", "name server", "nameserver"],
+    "connections": ["connection", "connect ", "handshake", "refused", "syn ", "reset", "rst"],
+    "hosts": ["host", "device", "inventory", "services", "which ip", "who is", "who are"],
+    "health": ["health", "score", "how good", "how healthy", "overall"],
+}
+
+
+def insight_paragraphs(question: str, state: dict) -> list[str]:
+    """Answers from the connection, DNS, host and health analysis, for questions that ask about them."""
+    import re
+    q = " " + re.sub(r"[^a-z0-9 ]", " ", question.lower()) + " "
+    want = {k for k, words in INSIGHT_WORDS.items() if any(w in q for w in words)}
+    out = []
+    h, c, d = state.get("health") or {}, state.get("connections") or {}, state.get("dns") or {}
+    if "health" in want and h.get("score") is not None:
+        pen = h.get("penalty_points", {})
+        out.append(f"**Health score: {h['score']}/100 ({h['grade']}).** Each 2 s window starts at 100 and "
+                   "loses up to 40 points for latency above normal, up to 40 for packet loss and 20 if the "
+                   f"anomaly detector flagged it. On average the run lost {pen.get('latency')} points to "
+                   f"latency, {pen.get('loss')} to loss and {pen.get('anomaly')} to anomalies; the worst "
+                   f"window scored {h['worst']} at t={h['worst_t']} s.")
+    if "connections" in want and c.get("attempts"):
+        txt = (f"**TCP connections:** {c['attempts']} attempts; {c['established']} completed the three-way "
+               f"handshake, {c['refused']} were refused with RST and {c['unanswered']} got no reply, so "
+               f"{c['success_pct']}% succeeded. Median handshake time {c['handshake_ms_median']} ms.")
+        if c.get("likely_scanners"):
+            top = c["top_failing"][0]
+            txt += (f" Most failures come from {top['client']} ({top['failed']} failed attempts to "
+                    f"{top['ports']} different ports), which is the pattern of a port scan.")
+        out.append(txt)
+    if "dns" in want and d.get("queries"):
+        out.append(f"**DNS:** {d['queries']} lookups from {d['clients']} clients; {d['unanswered']} got no "
+                   f"answer; median response time {d['response_ms_median']} ms (95th percentile "
+                   f"{d['response_ms_p95']} ms).")
+    if "hosts" in want:
+        talkers = state.get("top_talkers") or []
+        if talkers:
+            out.append("**Busiest hosts:** " + "; ".join(
+                f"{t.get('host')} ({t.get('bytes', 0):,} bytes)" for t in talkers[:5]) +
+                ". The Hosts & services page lists each host's role and the services it answered on.")
+    return out
+
+
 def offline_answer(question: str, state: dict, docs: list[dict]) -> str:
     incidents = state.get("incidents", [])
     routes = state.get("routes", [])
@@ -213,6 +271,17 @@ def offline_answer(question: str, state: dict, docs: list[dict]) -> str:
         return ""
 
     parts = []
+    insights = insight_paragraphs(question, state)
+    if insights and not is_concept_question(question):
+        parts += insights
+        if relevant:
+            parts.append("**Related incidents:** " + "; ".join(
+                f"{x['title'].lower()} at t={x['start_t']:g}-{x['end_t']:g} s" for x in relevant)
+                + ". Ask about one of them for the evidence and what to check.")
+        if docs:
+            parts.append("Sources: " + "; ".join(f"[{i}] {d['title']}" for i, d in enumerate(docs, 1)))
+        parts.append("_NetMind Copilot is advisory: it explains and recommends, it does not change the network._")
+        return "\n\n".join(parts)
     if is_concept_question(question) and docs:
         parts.append(f"{_first_sentences(docs[0]['text'], 4)} [1]")
         if len(docs) > 1 and docs[1]["score"] > 0.15:

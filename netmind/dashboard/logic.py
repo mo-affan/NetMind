@@ -158,6 +158,21 @@ def run_report_md(state: dict, metrics: pd.DataFrame) -> str:
               f"hosts: {s.get('hosts')}, flows: {s.get('flows')}",
               f"- Protocols: {s.get('protocols')}", "", "## Overall", ""]
     lines += [f"- {k}: {v}" for k, v in o.items() if v is not None]
+    h = state.get("health") or {}
+    if h.get("score") is not None:
+        lines.append(f"- health score: {h['score']}/100 ({h['grade']}), worst window {h['worst']} "
+                     f"at t = {h['worst_t']:g} s")
+    c, d = state.get("connections") or {}, state.get("dns") or {}
+    if c.get("attempts"):
+        lines += ["", "## TCP connections", "",
+                  f"- {c['attempts']} attempts: {c['established']} established, {c['refused']} refused, "
+                  f"{c['unanswered']} unanswered, {c['reset']} reset ({c['success_pct']}% success)",
+                  f"- median handshake {c['handshake_ms_median']} ms"]
+        if c.get("likely_scanners"):
+            lines.append(f"- likely scanner(s): {', '.join(c['likely_scanners'])}")
+    if d.get("queries"):
+        lines += ["", "## DNS", "", f"- {d['queries']} lookups from {d['clients']} clients, "
+                  f"{d['unanswered']} unanswered, median response {d['response_ms_median']} ms"]
     status = state.get("anomaly_status") or {}
     lines += ["", "## Incidents", ""]
     if status.get("state") == "insufficient_data":
@@ -232,3 +247,52 @@ def filter_flows(flows: pd.DataFrame, text: str = "", protocols: list[str] | Non
                + out.get("b", "").astype(str)).str.lower()
         out = out[hay.str.contains(t, regex=False)]
     return out
+
+
+def health_badge_html(h: dict) -> str:
+    """Small 'Health 82/100 Fair' badge for the page header (empty when there is no score)."""
+    if not h or h.get("score") is None:
+        return ""
+    tone = {"Good": "ok", "Fair": "info", "Poor": "bad"}.get(h.get("grade"), "info")
+    return (f'<div class="nm-health {tone}" title="0-100: latency, loss and anomaly penalties per '
+            f'window, averaged">Health <b>{h["score"]:g}</b>/100 &nbsp;{html.escape(h["grade"])}</div>')
+
+
+def insight_cards(conn: dict, dns: dict) -> list[dict]:
+    """Headline numbers for the Hosts & services page."""
+    cards = []
+    if conn.get("attempts"):
+        ok = conn["success_pct"]
+        cards += [
+            {"label": "TCP connection attempts", "value": f"{conn['attempts']:,}",
+             "note": f"{conn['established']:,} established", "tone": "muted", "series": []},
+            {"label": "Connection success", "value": f"{ok:g}%",
+             "note": f"{conn['refused']:,} refused, {conn['unanswered']:,} unanswered",
+             "tone": "bad" if ok < 90 else "muted", "series": []},
+            {"label": "Handshake time", "value": _fmt(_num(conn.get("handshake_ms_median")), "ms"),
+             "note": f"median; 95th percentile {_fmt(_num(conn.get('handshake_ms_p95')), 'ms')}",
+             "tone": "muted", "series": []}]
+    if dns.get("queries"):
+        cards += [
+            {"label": "DNS lookups", "value": f"{dns['queries']:,}",
+             "note": f"{dns['unanswered']} unanswered", "tone": "bad" if dns["unanswered"] else "muted",
+             "series": []},
+            {"label": "DNS response time", "value": _fmt(_num(dns.get("response_ms_median")), "ms"),
+             "note": f"median; 95th percentile {_fmt(_num(dns.get('response_ms_p95')), 'ms')}",
+             "tone": "muted", "series": []}]
+    return cards
+
+
+def service_table(conns: pd.DataFrame, min_attempts: int = 3) -> pd.DataFrame:
+    """Connection attempts and success rate per service; rarely used ports grouped together."""
+    if conns is None or conns.empty:
+        return pd.DataFrame(columns=["Service", "Attempts", "Success %"])
+    ok = conns["state"].isin(["established", "reset"])
+    counts = conns["service"].value_counts()
+    rare = counts[counts < min_attempts].index
+    label = conns["service"].where(~conns["service"].isin(rare),
+                                   f"other ports ({len(rare):,} ports, < {min_attempts} attempts each)")
+    t = pd.DataFrame({"Service": label, "ok": ok}).groupby("Service").agg(
+        Attempts=("ok", "size"), Success=("ok", "mean")).reset_index()
+    t["Success %"] = (100 * t.pop("Success")).round(1)
+    return t.sort_values("Attempts", ascending=False).reset_index(drop=True)
