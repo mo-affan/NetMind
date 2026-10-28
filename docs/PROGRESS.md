@@ -4,7 +4,8 @@ Newest first.
 
 | Date | Phase | What was done | Who |
 | --- | --- | --- | --- |
-| 2026-10-19 | Features | New analysis: TCP connection outcomes (established/refused/unanswered/reset, handshake time, likely scanners), DNS insights (lookups, unanswered, response time, top domains), host inventory (scope, role, services, traffic in/out), 0-100 network health score per window. Copilot answers questions about them; new dashboard page Hosts & services; health on every page header and the Performance page; `python -m netmind hosts`; API `/hosts`, `/connections`, `/dns`, `/insights`. NS2: optional RED queue on the bottleneck and `compare_traces.py` (RED run not executed yet; the default DropTail run uses the same commands as the executed version, but rerun it once to confirm) | Affan |
+| 2026-10-28 | NS2 | Re-ran the updated scenario (DropTail): same 5/5 PASS and the same numbers. **Executed the RED variant**: during the UDP burst delay 71.3 ms vs 103.1 ms with DropTail (31% lower), 25 vs 21 drops (loss 6.22% vs 5.24%), TCP goodput 0.150 vs 0.153 Mb/s; normal and link-failure phases identical | Affan |
+| 2026-10-19 | Features | New analysis: TCP connection outcomes (established/refused/unanswered/reset, handshake time, likely scanners), DNS insights (lookups, unanswered, response time, top domains), host inventory (scope, role, services, traffic in/out), 0-100 network health score per window. Copilot answers questions about them; new dashboard page Hosts & services; health on every page header and the Performance page; `python -m netmind hosts`; API `/hosts`, `/connections`, `/dns`, `/insights`. NS2: optional RED queue on the bottleneck and `compare_traces.py` (both executed on 2026-10-28, see above) | Affan |
 | 2026-10-15 | NS2 | **Executed** `netmind_scenario.tcl` in NS2 on Ubuntu 24.04: all 5 checks passed (delay 43.0 → 103.1 ms during the burst, 0 → 21 drops, rerouted via n4 at 115.2 ms) | Affan |
 | 2026-10-15 | Dashboard | Redesigned the dashboard: new look (IBM Plex, teal theme), traffic-trace hero with incident bands, KPI cards with trends, Copilot panel on the Overview plus a full Copilot page, Incidents, Traffic explorer, Performance, link-failure simulator, run comparison, report/CSV export. Logic split into `dashboard/logic.py` with unit tests; AppTest tests for every page | Affan |
 | 2026-10-15 | Repair | Diagnosed the "missing implementation" on the laptop (stale clone, see below). Hardened: empty/short captures, repo-anchored paths, optional-package errors, `/health`, synthetic labelling, Streamlit width API; fewer false alarms (stricter forest threshold, 16 s minimum baseline); split requirements; Windows setup/run scripts; CLI, edge-case, API and dashboard tests; README, Review 2 guide and demo script | Affan |
@@ -79,7 +80,7 @@ No false alarms in normal traffic across three random seeds (one extra window fl
 | --- | --- |
 | Implemented (scenario and parser reviewed, fixes made) | Done 2026-10-15 |
 | Validated (parser + pipeline on a sample trace) | Done 2026-10-15, on a **synthetic** trace, not NS2 output |
-| Executed (scenario run in NS2) | **Done 2026-10-15** on Ubuntu 24.04 (team laptop); all 5 checks passed. RED variant: not run yet |
+| Executed (scenario run in NS2) | **Done 2026-10-15** on Ubuntu 24.04 (team laptop); all 5 checks passed; re-run 2026-10-28 with the same result. RED variant executed 2026-10-28 |
 
 ### NS2 review changes (2026-10-15)
 
@@ -106,5 +107,22 @@ No false alarms in normal traffic across three random seeds (one extra window fl
 | Delay higher during the burst | PASS: 43.0 ms → 103.1 ms |
 | Traffic rerouted via n4 during the link failure (7-8.5 s) | PASS |
 | TCP delay higher on the backup path | PASS: 115.2 ms |
+
+#### DropTail vs RED (2026-10-28, `compare_traces.py netmind.tr red.tr`)
+
+| Phase | Queue | Sent | Drops | Loss % | Delay ms | TCP Mb/s | TCP drops |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Normal (0.5-3 s) | DropTail | 197 | 0 | 0.00 | 43.0 | 0.652 | 0 |
+| | RED | 197 | 0 | 0.00 | 43.0 | 0.652 | 0 |
+| UDP burst (3-6 s) | DropTail | 401 | 21 | 5.24 | 103.1 | 0.153 | 8 |
+| | RED | 402 | 25 | 6.22 | 71.3 | 0.150 | 10 |
+| Recovery (6-7 s) | DropTail | 68 | 3 | 4.41 | 44.7 | 0.541 | 3 |
+| | RED | 64 | 4 | 6.25 | 44.6 | 0.499 | 4 |
+| Link down (7-8.5 s) | DropTail | 31 | 0 | 0.00 | 114.2 | 0.172 | 0 |
+| | RED | 31 | 0 | 0.00 | 113.9 | 0.172 | 0 |
+| Link up (8.5-10 s) | DropTail | 78 | 0 | 0.00 | 42.5 | 0.433 | 0 |
+| | RED | 78 | 0 | 0.00 | 43.0 | 0.433 | 0 |
+
+RED cut queueing delay during the burst by 31% (103.1 to 71.3 ms) at the cost of a few more early drops: the delay vs loss trade-off of active queue management.
 
 Still to record: the NS2 version and the trace file itself in `ns2/results/`. NAM did not open on that machine (it could not find the Tk library `tk.tcl`); see the checklist's Appendix B.

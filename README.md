@@ -30,7 +30,7 @@ NS2 trace ──────┘                     analysis    └─ anomaly d
 | Part | Status |
 | --- | --- |
 | Synthetic demo, traffic analysis, metrics, anomaly detection, incidents, SQLite, RAG, offline Copilot, topology/routing, CLI | Working; covered by tests |
-| NS2 scenario and trace analysis | Scenario **executed in NS2** on 2026-10-15 (Ubuntu 24.04), all 5 checks passed; analysis also tested on a synthetic sample trace. RED-queue variant added 2026-10-19, not yet run (see `docs/NS2_LAB_EXECUTION.md`) |
+| NS2 scenario and trace analysis | Scenario **executed in NS2** on 2026-10-15 (Ubuntu 24.04), all 5 checks passed; analysis also tested on a synthetic sample trace. re-run 2026-10-28 with the same result. RED-queue variant executed 2026-10-28: 31% lower delay during congestion than DropTail (see `docs/PROGRESS.md`) |
 | Dashboard, REST API, pcap reading | Implemented; their tests run only where Streamlit / FastAPI / Scapy are installed (see `docs/PROGRESS.md` for what was verified where) |
 | Live capture | Implemented; needs Scapy, Npcap and an Administrator terminal; not covered by automated tests |
 | Claude / Ollama Copilot backends | Implemented; optional; tests always use the offline backend |

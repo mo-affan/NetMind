@@ -276,7 +276,7 @@ A(table([
     ["Implemented", "Done: TCL scenario, trace parser, checker reviewed and fixed"],
     ["Validated", "Done: parser and NetMind pipeline tested on a sample trace"],
     ["Executed", "<b>Done on 15 Oct 2026</b>: scenario run in NS2 on Ubuntu 24.04 (on the laptop); "
-                 "all 5 checks passed on the real trace"],
+                 "all 5 checks passed on the real trace; re-run on 28 Oct with the same result"],
 ], [0.2, 0.8]))
 A(P("Scenario (5 nodes)", "h2"))
 A(table([
@@ -296,6 +296,16 @@ A(table([
     ["Traffic rerouted via n4 during the link failure (7-8.5 s)", "PASS"],
     ["TCP delay higher on the backup path", "PASS: 115.2 ms"],
 ], [0.62, 0.38]))
+A(P("DropTail vs RED queue (compare_traces.py, executed 28 Oct)", "h2"))
+A(table([
+    ["During the UDP burst (3-6 s)", "DropTail", "RED"],
+    ["Mean delay", "103.1 ms", "<b>71.3 ms (31% lower)</b>"],
+    ["Drops (loss)", "21 (5.24%)", "25 (6.22%)"],
+    ["TCP drops", "8", "10"],
+    ["TCP goodput", "0.153 Mb/s", "0.150 Mb/s"],
+], [0.4, 0.3, 0.3]))
+A(P("Normal and link-failure phases were identical for both. RED drops early at random once the "
+    "average queue passes 3 packets, so the queue stays short: less delay, slightly more loss.", "small"))
 A(Spacer(1, 4))
 story += bullets([
     "<b>Definitions</b> used for NS2: delay = receive time − send time (one-way, NS2 knows both); "
@@ -401,6 +411,16 @@ qa = [
     ("Why is the demo synthetic?",
      "So the truth is known: we inject problems at known times and check NetMind finds them. Real captures "
      "and NS2 traces go through exactly the same pipeline."),
+    ("Why was delay lower with RED?",
+     "RED (Random Early Detection) drops packets at random once the average queue passes a threshold, "
+     "before the queue is full, so TCP backs off earlier and the queue stays short. In our run delay "
+     "during congestion fell from 103.1 to 71.3 ms, with 25 drops instead of 21."),
+    ("What is the health score?",
+     "Each 2 s window starts at 100 and loses up to 40 points for latency above normal, up to 40 for "
+     "loss and 20 if flagged as anomalous. Demo 82.4 (Fair), normal traffic 99.5 (Good)."),
+    ("How do you find a port scan without the ML model?",
+     "By following each TCP SYN: 192.168.1.66 made 1,000 attempts to 1,000 ports, all refused with RST. "
+     "20+ failed attempts to 20+ ports marks a likely scanner."),
     ("Ethics?", "Only capture networks you own or may monitor; the Copilot never changes the network."),
 ]
 for q, a in qa:
@@ -421,7 +441,7 @@ story += bullets([
     "Fewer false alarms; honest \"not enough traffic\" instead of \"no anomalies\" for short captures.",
     "Redesigned dashboard with 9 pages, Copilot panel, link-failure simulator, light and dark themes.",
     "New analysis: TCP connection outcomes, DNS insights, host inventory with roles and services, and a "
-    "0-100 health score; NS2 scenario can also run with a RED queue (compare_traces.py).",
+    "0-100 health score; NS2 scenario also run with a RED queue: 31% lower delay during congestion.",
 ])
 
 # ---------------------------------------------------------------- appendix A: run everything

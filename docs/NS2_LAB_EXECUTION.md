@@ -8,7 +8,7 @@ This guide is for running `ns2/netmind_scenario.tcl` on a lab machine that has N
 | --- | --- | --- |
 | **Implemented** | TCL scenario and trace parser reviewed and fixed | Done (2026-10-15) |
 | **Validated** | Parser and NetMind pipeline tested on a sample trace | Done, on a **synthetic** sample (`tests/data/sample_ns2.tr`, produced by a Python model, not by NS2) |
-| **Executed** | `netmind_scenario.tcl` actually run with NS2 | **Done 2026-10-15** on Ubuntu 24.04 (the team laptop): all 5 checks of `check_trace.py` passed (delay 43.0 ms before the burst, 103.1 ms during it; 0 drops before, 21 during; TCP rerouted via n4 at 115.2 ms). The RED variant (section 9a) has **not been run yet** |
+| **Executed** | `netmind_scenario.tcl` actually run with NS2 | **Done 2026-10-15** on Ubuntu 24.04 (the team laptop): all 5 checks of `check_trace.py` passed (delay 43.0 ms before the burst, 103.1 ms during it; 0 drops before, 21 during; TCP rerouted via n4 at 115.2 ms). Re-run 2026-10-28 with the same result. The RED variant (section 9a) was **executed 2026-10-28**: delay during the burst 71.3 ms vs 103.1 ms with DropTail |
 
 ## What the scenario does
 
@@ -237,6 +237,8 @@ python3 compare_traces.py droptail.tr red.tr  # phase-by-phase comparison
 | Link failure (7-8.5 s) | Same rerouting via n4 for both |
 
 Then analyse both in NetMind (`python -m netmind ns2 droptail.tr` and `python -m netmind ns2 red.tr`) and compare them on the dashboard's **Compare runs** page. `check_trace.py red.tr` may report drops before the burst if RED drops early; that check was written for DropTail.
+
+**Result of the run on 2026-10-28:** during the UDP burst RED gave 71.3 ms delay vs 103.1 ms with DropTail (31% lower), with 25 vs 21 drops (6.22% vs 5.24% loss) and TCP goodput 0.150 vs 0.153 Mb/s. The normal and link-failure phases were identical. Full table: `docs/PROGRESS.md`.
 
 ## 10. Common errors and fixes
 
