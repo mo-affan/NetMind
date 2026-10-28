@@ -90,6 +90,12 @@ code, .nm-mono { font-family: var(--nm-mono); }
 .nm-inc-meta { color: var(--nm-muted); font-size: 0.9rem; margin: 0.15rem 0 0.4rem; }
 .nm-inc-meta b { font-family: var(--nm-mono); font-weight: 500; }
 
+.nm-check { display: flex; gap: 0.8rem; align-items: baseline; padding: 0.55rem 0.9rem;
+  border: 1px solid var(--nm-line); border-radius: 8px; margin-bottom: 0.45rem; background: var(--nm-card); }
+.nm-check b { font-family: var(--nm-mono); min-width: 3.2rem; }
+.nm-check.ok b { color: var(--nm-green); }
+.nm-check.bad b { color: var(--nm-red); }
+
 /* copilot panel */
 .nm-panel-title { font-size: 1.1rem; font-weight: 600; margin: 0 0 0.1rem; }
 .nm-panel-sub { color: var(--nm-muted); font-size: 0.85rem; margin-bottom: 0.5rem; }

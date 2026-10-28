@@ -3,7 +3,7 @@
 Run:  python -m netmind dashboard      (or: streamlit run netmind/dashboard/app.py)
 
 Pages: Overview (with the Copilot panel), Incidents, Traffic, Hosts & services, Performance,
-Topology & routing, Copilot, Compare runs, Data & export. The sidebar picks the run, the page, and starts new runs
+Topology & routing, NS2 lab, Copilot, Compare runs, Data & export. The sidebar picks the run, the page, and starts new runs
 (synthetic demo, uploaded pcap / NS2 trace, live capture).
 """
 from __future__ import annotations
@@ -26,7 +26,7 @@ from netmind.pipeline import analyze_ns2, analyze_packets, get_state  # noqa: E4
 from netmind.storage import DEFAULT_DB, NetMindDB  # noqa: E402
 
 PAGES = ["Overview", "Incidents", "Traffic", "Hosts & services", "Performance", "Topology & routing",
-         "Copilot", "Compare runs", "Data & export"]
+         "NS2 lab", "Copilot", "Compare runs", "Data & export"]
 SUGGESTIONS = ["Why is the network slow?", "Is anyone attacking my network?",
                "Did any link fail?", "What is jitter?", "How healthy is my network?",
                "Which hosts failed to connect?", "Are DNS lookups slow?"]
@@ -171,6 +171,29 @@ def cb_capture():
         flash("error", f"Live capture failed ({type(e).__name__}: {e}). It needs Npcap and a "
                        "terminal started as Administrator; you can also use "
                        "`python -m netmind capture` and then pick the run here.")
+
+
+def _saved_upload(key: str) -> str | None:
+    """Path of a temporary copy of an uploaded file (written once per upload)."""
+    up = ss.get(key)
+    if up is None:
+        return None
+    tag = (up.name, up.size)
+    cached = ss.get(f"{key}_saved")
+    if cached and cached[0] == tag and Path(cached[1]).exists():
+        return cached[1]
+    with tempfile.NamedTemporaryFile(suffix=Path(up.name).suffix or ".tr", delete=False) as f:
+        f.write(up.getvalue())
+    ss[f"{key}_saved"] = (tag, f.name)
+    return f.name
+
+
+def cb_ns2_analyse(path: str, name: str):
+    try:
+        rid = analyze_ns2(path, name, db)
+        _select_new_run(rid, name)
+    except ValueError as e:
+        flash("error", f"Could not analyse {name}: {e}")
 
 
 def cb_delete(run_id: int):
@@ -630,6 +653,112 @@ def page_topology():
             stretch(st.dataframe, sim, hide_index=True)
 
 
+def page_ns2():
+    from netmind.dashboard import ns2lab
+    header("NS2 lab")
+    st.caption("The NS2 Simulation Module: the scenario, its TCL code, how to run it, and the lab checks "
+               "applied to a trace. The checks are the same code as ns2/check_trace.py.")
+    prm = ns2lab.scenario_parameters()
+    c1, c2 = st.columns([1.1, 1], gap="large")
+    with c1:
+        st.markdown("### Topology")
+        chart(charts.ns2_topology(prm["links"]), key="ns2_topo")
+        st.caption(f"Routing: {prm['routing']}. Bottleneck n2-n3 queue limit {prm['queue_limit']} packets; "
+                   f"backup links cost {', '.join(str(c) for *_, c in prm['costs'])}, so traffic uses n4 only "
+                   f"when n2-n3 is down. TCP window {prm['tcp_window']} packets; UDP {prm['udp_rate']}.")
+    with c2:
+        st.markdown("### Timeline")
+        stretch(st.dataframe, pd.DataFrame(ns2lab.TIMELINE, columns=["Time", "Event", "Expected"]),
+                hide_index=True)
+    t_code, t_run, t_check, t_cmp = st.tabs(["TCL script", "How to run", "Check a trace", "DropTail vs RED"])
+    with t_code:
+        src = ns2lab.scenario_source()
+        st.download_button("Download netmind_scenario.tcl", src, file_name="netmind_scenario.tcl",
+                           mime="text/plain", key="ns2_dl")
+        st.code(src, language="tcl", line_numbers=True)
+    with t_run:
+        st.markdown("Run these in the **Ubuntu** terminal (not PowerShell). NS2 writes the trace "
+                    "(`.tr`) and the NAM animation (`.nam`) to the folder you run it from.")
+        st.code(ns2lab.COMMANDS, language="bash")
+        st.markdown("Expected first line: `NetMind NS2 scenario: running 10 s simulation, output base name "
+                    "'netmind', bottleneck queue DropTail`, then one line per event and "
+                    "`Simulation finished at t=10 s`.")
+    with t_check:
+        src_kind = st.radio("Trace", ["Upload a trace (.tr)", "Bundled sample trace (synthetic, not NS2 output)"],
+                            key="ns2_src", horizontal=True)
+        if src_kind.startswith("Upload"):
+            st.file_uploader("NS2 trace written by $ns trace-all", type=["tr"], key="ns2_trace")
+            path, name = _saved_upload("ns2_trace"), getattr(ss.get("ns2_trace"), "name", None)
+        else:
+            path, name = str(ns2lab.SAMPLE_TRACE), "sample_ns2.tr"
+        if not path:
+            st.markdown('<div class="nm-empty">Upload <b>netmind.tr</b> from your Ubuntu folder '
+                        '(<code>~/netmind_ns2</code>) to run the five scenario checks on it.</div>',
+                        unsafe_allow_html=True)
+        else:
+            try:
+                res = ns2lab.check(path)
+            except ValueError as e:
+                st.error(f"{name}: {e}")
+                res = None
+            if res:
+                tone = "ok" if res["passed"] == 5 else "bad"
+                st.markdown(f'<div class="nm-verdict {tone}" style="display:inline-block">'
+                            f'{res["passed"]} of 5 checks passed</div>', unsafe_allow_html=True)
+                st.markdown("".join(
+                    f'<div class="nm-check {"ok" if ok else "bad"}"><b>{"PASS" if ok else "FAIL"}</b>'
+                    f'<span>{esc(n)}</span></div>' for n, ok in res["checks"]), unsafe_allow_html=True)
+                s = res["stats"]
+                st.markdown(logic.kpi_cards_html([
+                    {"label": "Delay, normal period", "value": f"{s['delay_normal_ms']:.1f} ms",
+                     "note": "0.5-3 s", "tone": "muted", "series": []},
+                    {"label": "Delay, UDP burst", "value": f"{s['delay_burst_ms']:.1f} ms",
+                     "note": "3-6 s", "tone": "bad" if s["delay_burst_ms"] > 1.3 * s["delay_normal_ms"] else "muted",
+                     "series": []},
+                    {"label": "Drops, normal / burst", "value": f"{s['drops_normal']} / {s['drops_burst']}",
+                     "note": "data packets", "tone": "muted", "series": []},
+                    {"label": "TCP delay, link down", "value": f"{s['delay_failure_ms']:.1f} ms",
+                     "note": "via n4, 7.1-8.4 s", "tone": "muted", "series": []}]), unsafe_allow_html=True)
+                c3, c4 = st.columns(2, gap="large")
+                with c3:
+                    st.markdown("**Routes** (a new row each time a flow changed path)")
+                    stretch(st.dataframe, pd.DataFrame(res["routes"]).rename(
+                        columns={"t": "Time (s)", "fid": "Flow", "path": "Path"}), hide_index=True)
+                with c4:
+                    st.markdown("**Per phase**")
+                    stretch(st.dataframe, ns2lab.phases(path), hide_index=True)
+                    st.caption(f"{res['events']:,} packet events, {res['packets']:,} data packets, last "
+                               f"event at {res['t_end']:.2f} s. Drops per link: "
+                               f"{res['drops_per_link'] or 'none'}.")
+                st.button(f"Analyse {name} as a NetMind run", key="ns2_analyse", type="primary",
+                          on_click=cb_ns2_analyse, args=(path, name))
+    with t_cmp:
+        st.markdown("Upload the DropTail trace and the RED trace (`ns netmind_scenario.tcl red RED`) to compare "
+                    "them phase by phase, like `compare_traces.py`.")
+        c5, c6 = st.columns(2)
+        c5.file_uploader("Trace A (DropTail, e.g. netmind.tr)", type=["tr"], key="ns2_a")
+        c6.file_uploader("Trace B (RED, e.g. red.tr)", type=["tr"], key="ns2_b")
+        pa, pb = _saved_upload("ns2_a"), _saved_upload("ns2_b")
+        if not (pa and pb):
+            st.markdown('<div class="nm-empty">Choose both traces to see the comparison.</div>',
+                        unsafe_allow_html=True)
+        else:
+            try:
+                cmp = ns2lab.compare(pa, pb, "A", "B")
+            except (ValueError, SystemExit) as e:
+                st.error(f"Could not compare the traces: {e}")
+                cmp = None
+            if cmp is not None:
+                burst = cmp.set_index("Phase").loc["UDP burst"]
+                st.markdown(f"During the UDP burst, mean delay is **{burst['Delay (ms) A']:.1f} ms** with A and "
+                            f"**{burst['Delay (ms) B']:.1f} ms** with B ({burst['Delay change %']:+.1f}%); drops "
+                            f"{int(burst['Drops A'])} vs {int(burst['Drops B'])}.")
+                chart(charts.phase_delay_bars(cmp, "A", "B"), key="ns2_cmp_chart")
+                stretch(st.dataframe, cmp, hide_index=True)
+                st.caption("RED drops early, at random, once the average queue passes its lower threshold, "
+                           "so the queue stays shorter than with DropTail, which drops only when it is full.")
+
+
 def page_copilot():
     header("Copilot")
     cp = get_copilot()
@@ -719,5 +848,5 @@ def page_data():
 
 {"Overview": page_overview, "Incidents": page_incidents, "Traffic": page_traffic,
  "Hosts & services": page_hosts,
- "Performance": page_performance, "Topology & routing": page_topology, "Copilot": page_copilot,
+ "Performance": page_performance, "Topology & routing": page_topology, "NS2 lab": page_ns2, "Copilot": page_copilot,
  "Compare runs": page_compare, "Data & export": page_data}[ss.get("page", "Overview")]()

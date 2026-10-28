@@ -8,7 +8,7 @@ from conftest import ROOT
 
 APP = str(ROOT / "netmind" / "dashboard" / "app.py")
 PAGES = ["Overview", "Incidents", "Traffic", "Hosts & services", "Performance", "Topology & routing",
-         "Copilot", "Compare runs", "Data & export"]
+         "NS2 lab", "Copilot", "Compare runs", "Data & export"]
 
 
 @pytest.fixture
@@ -70,6 +70,20 @@ def test_hosts_page_shows_scanner_and_inventory(demo_app):
     assert len(at.dataframe) >= 3  # hosts, services, DNS
     _button(at, "hs_ask").click().run()
     assert at.sidebar.radio[0].value == "Copilot" and len(at.chat_message) == 2
+
+
+def test_ns2_lab_checks_the_sample_trace(demo_app):
+    at = demo_app
+    at.sidebar.radio[0].set_value("NS2 lab").run()
+    assert not at.exception
+    assert any("netmind_scenario" in c.value or "rtproto DV" in c.value for c in at.code)
+    src = next(r for r in at.radio if r.key == "ns2_src")
+    src.set_value(src.options[1]).run()
+    assert not at.exception
+    page = _html(at)
+    assert "5 of 5 checks passed" in page and page.count("<b>PASS</b>") == 5
+    _button(at, "ns2_analyse").click().run()
+    assert not at.exception and at.sidebar.radio[0].value == "Overview"
 
 
 def test_every_page_renders(demo_app):

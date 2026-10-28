@@ -98,6 +98,7 @@ or `powershell -ExecutionPolicy Bypass -File scripts\run_demo.ps1 -Dashboard`.
 | Hosts & services | Every host with its scope, role and the services it answered on; TCP connection outcomes per client and per service (a likely port scanner is called out); DNS lookups, response times and the most-queried domains |
 | Performance | Health score, latency, jitter, loss, throughput, packets/s and retransmissions against their normal level; round-trip times by measurement type |
 | Topology & routing | Host graph, Dijkstra path, Link State vs Distance Vector tables, and a link-failure simulator showing which routes change |
+| NS2 lab | The NS2 scenario's topology (read from the TCL file) and timeline, the TCL script with a download button, the Ubuntu commands, the five scenario checks on an uploaded trace (same code as `ns2/check_trace.py`) with routes and per-phase numbers, and a DropTail vs RED comparison of two uploaded traces |
 | Copilot | Full chat with suggested questions, per-incident questions, sources, and the exact prompt the model was given |
 | Compare runs | Two runs side by side (for example the demo vs normal-only traffic) |
 | Data & export | Markdown report and CSV downloads, raw tables, the detector's baseline, delete a run |

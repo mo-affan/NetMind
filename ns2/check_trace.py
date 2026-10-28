@@ -68,6 +68,45 @@ def analyse(events):
     return pk, hops
 
 
+def routes(pk, hops):
+    """Route of each flow over time: a new entry each time a delivered packet took a new path."""
+    out, last = [], {}
+    for pid, p in sorted(pk.items(), key=lambda kv: kv[1]["t"]):
+        if p["recv"] is None:
+            continue
+        path = "-".join(f"n{x}" for x in [p["src"]] + hops[pid])
+        if last.get(p["fid"]) != path:
+            out.append({"t": p["t"], "fid": p["fid"], "path": path})
+            last[p["fid"]] = path
+    return out
+
+
+def scenario_checks(pk, hops):
+    """The five expected behaviours of netmind_scenario.tcl: [(name, passed)], and the numbers."""
+    def window_stats(t0, t1, fid=None):
+        sel = [p for p in pk.values() if t0 <= p["t"] < t1 and (fid is None or p["fid"] == fid)]
+        got = [p for p in sel if p["recv"] is not None]
+        drop = [p for p in sel if p["recv"] is None and p["drop"] is not None]
+        delay = sum((p["recv"] - p["t"]) for p in got) / len(got) * 1000 if got else 0
+        return len(drop), delay
+
+    d_norm, delay_norm = window_stats(0.5, 3.0)
+    d_cong, delay_cong = window_stats(3.0, 6.0)
+    _, delay_fail = window_stats(7.1, 8.4, fid=1)
+    rerouted = any("n4" in "-".join(f"n{x}" for x in hops[pid]) and 7.0 <= p["t"] < 8.5
+                   for pid, p in pk.items() if p["recv"] is not None)
+    checks = [
+        ("no drops before the UDP burst (0.5-3 s)", d_norm == 0),
+        ("drops during the UDP burst (3-6 s)", d_cong > 0),
+        ("delay higher during the burst than before", delay_cong > 1.3 * delay_norm > 0),
+        ("traffic rerouted via n4 during the link failure (7-8.5 s)", rerouted),
+        ("TCP delay higher on the backup path", delay_fail > 1.3 * delay_norm > 0),
+    ]
+    stats = {"delay_normal_ms": delay_norm, "delay_burst_ms": delay_cong, "delay_failure_ms": delay_fail,
+             "drops_normal": d_norm, "drops_burst": d_cong, "rerouted": rerouted}
+    return checks, stats
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("trace")
@@ -138,44 +177,21 @@ def main():
 
     # ---- routes ----
     print("\nRoutes (new line = route changed):")
-    last = {}
-    for pid, p in sorted(pk.items(), key=lambda kv: kv[1]["t"]):
-        if p["recv"] is None:
-            continue
-        path = "-".join(f"n{x}" for x in [p["src"]] + hops[pid])
-        if last.get(p["fid"]) != path:
-            print(f"  t={p['t']:7.3f} s  flow {p['fid']}: {path}")
-            last[p["fid"]] = path
+    for r in routes(pk, hops):
+        print(f"  t={r['t']:7.3f} s  flow {r['fid']}: {r['path']}")
     if link_lines:
         print("\nLink status lines in the trace:")
         for l in link_lines[:10]:
             print("  " + l)
 
     # ---- scenario checks (netmind_scenario.tcl) ----
-    def window_stats(t0, t1, fid=None):
-        sel = [p for p in pk.values() if t0 <= p["t"] < t1 and (fid is None or p["fid"] == fid)]
-        got = [p for p in sel if p["recv"] is not None]
-        drop = [p for p in sel if p["recv"] is None and p["drop"] is not None]
-        delay = sum((p["recv"] - p["t"]) for p in got) / len(got) * 1000 if got else 0
-        return len(drop), delay
-
-    d_norm, delay_norm = window_stats(0.5, 3.0)
-    d_cong, delay_cong = window_stats(3.0, 6.0)
-    _, delay_fail = window_stats(7.1, 8.4, fid=1)
-    rerouted = any("n4" in "-".join(f"n{x}" for x in hops[pid]) and 7.0 <= p["t"] < 8.5
-                   for pid, p in pk.items() if p["recv"] is not None)
-    checks = [
-        ("no drops before the UDP burst (0.5-3 s)", d_norm == 0),
-        ("drops during the UDP burst (3-6 s)", d_cong > 0),
-        ("delay higher during the burst than before", delay_cong > 1.3 * delay_norm > 0),
-        ("traffic rerouted via n4 during the link failure (7-8.5 s)", rerouted),
-        ("TCP delay higher on the backup path", delay_fail > 1.3 * delay_norm > 0),
-    ]
+    checks, st = scenario_checks(pk, hops)
     print("\nScenario checks")
     for name, ok in checks:
         print(f"  [{'PASS' if ok else 'FAIL'}] {name}")
-    print(f"  (delay before burst {delay_norm:.1f} ms, during burst {delay_cong:.1f} ms, "
-          f"TCP during failure {delay_fail:.1f} ms; drops before {d_norm}, during {d_cong})")
+    print(f"  (delay before burst {st['delay_normal_ms']:.1f} ms, during burst {st['delay_burst_ms']:.1f} ms, "
+          f"TCP during failure {st['delay_failure_ms']:.1f} ms; drops before {st['drops_normal']}, "
+          f"during {st['drops_burst']})")
     return 0 if all(ok for _, ok in checks) else 1
 
 

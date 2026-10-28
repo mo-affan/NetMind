@@ -265,3 +265,57 @@ def host_bytes(inv: pd.DataFrame, top: int = 10) -> go.Figure:
     fig.update_xaxes(title_text="bytes", title_font=dict(size=11, color=MUTED), showgrid=True, gridcolor=GRID)
     fig.update_yaxes(showgrid=False, tickfont=dict(size=12, family="IBM Plex Mono, Consolas, monospace"))
     return fig
+
+
+NS2_POS = {"n0": (0.0, 1.0), "n1": (0.0, -1.0), "n2": (1.2, 0.0), "n3": (3.0, 0.0), "n4": (2.1, -1.2)}
+NS2_ROLE = {"n0": "TCP source", "n1": "UDP source", "n2": "router", "n3": "sink", "n4": "backup"}
+
+
+def ns2_topology(links: list[dict], down: bool = False) -> go.Figure:
+    """The NS2 scenario's five nodes and links, labels taken from the TCL file.
+    The n2-n3 bottleneck is red; the backup path through n4 is dashed (solid when `down`)."""
+    fig = go.Figure()
+    for lk in links:
+        a, b = lk["a"], lk["b"]
+        if a not in NS2_POS or b not in NS2_POS:
+            continue
+        (x0, y0), (x1, y1) = NS2_POS[a], NS2_POS[b]
+        main = {a, b} == {"n2", "n3"}
+        backup = "n4" in (a, b)
+        colour = RED if main else (TEAL if backup else AXIS)
+        dash = "dot" if main and down else ("dash" if backup and not down else "solid")
+        fig.add_trace(go.Scatter(x=[x0, x1], y=[y0, y1], mode="lines", hoverinfo="skip",
+                                 line=dict(color=colour, width=5 if main else 3, dash=dash), showlegend=False))
+        queue = "DropTail or RED" if lk["queue"].startswith("$") else lk["queue"]
+        fig.add_annotation(x=(x0 + x1) / 2, y=(y0 + y1) / 2, text=f"{lk['bandwidth']}, {lk['delay']}"
+                           + (f"<br>{queue}" if main else ""), showarrow=False, yshift=16 if not backup else -18,
+                           font=dict(size=12, color=RED if main else MUTED))
+    xs = [NS2_POS[n][0] for n in NS2_POS]
+    ys = [NS2_POS[n][1] for n in NS2_POS]
+    fig.add_trace(go.Scatter(
+        x=xs, y=ys, mode="markers+text", text=list(NS2_POS), textposition="middle center",
+        textfont=dict(color="#ffffff", size=14, family="IBM Plex Mono, Consolas, monospace"),
+        marker=dict(size=44, color=[BLUE, BLUE, TEAL, BLUE, TEAL], line=dict(color=OUTLINE, width=2)),
+        hovertext=[f"{n}: {NS2_ROLE[n]}" for n in NS2_POS], hoverinfo="text", showlegend=False))
+    for n, (x, y) in NS2_POS.items():
+        fig.add_annotation(x=x, y=y, text=NS2_ROLE[n], showarrow=False, yshift=-34 if y <= 0 else 34,
+                           font=dict(size=12, color=MUTED))
+    style(fig, 360)
+    fig.update_layout(hovermode="closest", margin=dict(l=8, r=8, t=16, b=8))
+    fig.update_xaxes(visible=False, range=[-0.6, 3.6])
+    fig.update_yaxes(visible=False, range=[-1.7, 1.5])
+    return fig
+
+
+def phase_delay_bars(cmp: pd.DataFrame, name_a: str, name_b: str) -> go.Figure:
+    """Mean one-way delay per scenario phase for two NS2 traces."""
+    fig = go.Figure()
+    for name, colour in ((name_a, MUTED), (name_b, TEAL)):
+        col = f"Delay (ms) {name}"
+        fig.add_trace(go.Bar(x=cmp["Phase"], y=cmp[col], name=name, marker=dict(color=colour),
+                             text=[f"{v:.1f}" for v in cmp[col]], textposition="outside", cliponaxis=False,
+                             hovertemplate="%{x}: %{y:.1f} ms<extra>" + name + "</extra>"))
+    style(fig, 300, legend=True)
+    fig.update_layout(barmode="group", hovermode="closest", margin=dict(l=8, r=8, t=40, b=8))
+    fig.update_yaxes(title_text="mean one-way delay (ms)", title_font=dict(size=11, color=MUTED))
+    return fig

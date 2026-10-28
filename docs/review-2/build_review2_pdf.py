@@ -165,7 +165,7 @@ A(table([
     ["Part", "Modules", "Presenter"],
     ["Input and traffic analysis", "M1 capture (Scapy, pcap, synthetic), M2 protocols and flows", "Hardik"],
     ["Topology and routing, storage", "M5 graph, Dijkstra, LS, DV; M6 SQLite", "Hardik"],
-    ["Dashboard", "M9 Streamlit dashboard (9 pages)", "Hardik (lead)"],
+    ["Dashboard", "M9 Streamlit dashboard (10 pages)", "Hardik (lead)"],
     ["Performance and anomaly detection", "M4 metrics; M3 Isolation Forest, deviation check, incidents", "Affan"],
     ["Knowledge and Copilot", "M7 RAG; M8 Copilot (offline, Claude, Ollama)", "Affan"],
     ["NS2 simulation", "TCL scenario, trace parser, checker, lab run", "Affan"],
@@ -233,7 +233,7 @@ mods = [
      "Backends: offline rule-based (default, deterministic), Claude API, local Ollama; falls back to "
      "offline if the LLM is unreachable. Cites sources. Advisory only."),
     ("M9 Dashboard", "netmind/dashboard/",
-     "Streamlit, 9 pages (section 8), light and dark themes; also the CLI and the REST API."),
+     "Streamlit, 10 pages (section 8), light and dark themes; also the CLI and the REST API."),
     ("NS2", "ns2/",
      "netmind_scenario.tcl, trace parser (parse_trace.py), standard-library checker (check_trace.py), "
      "lab guide (docs/NS2_LAB_EXECUTION.md). Details in section 7."),
@@ -331,6 +331,8 @@ A(table([
     ["Performance", "Health score, latency, jitter, loss, throughput, packets/s, retransmissions with the normal level; RTT by type"],
     ["Topology & routing", "Host graph, Dijkstra path, Link State vs Distance Vector table; "
                            "<b>Simulate a link failure</b> shows which routes change and DV rounds"],
+    ["NS2 lab", "The scenario topology and timeline, the TCL script, the run commands, the five checks on an "
+                "uploaded trace (5 × PASS), and DropTail vs RED from two uploaded traces"],
     ["Copilot", "Chat with suggested and per-incident questions, sources, and the exact prompt given to the model"],
     ["Compare runs", "Two runs side by side (demo vs normal-only traffic)"],
     ["Data & export", "Markdown report and CSV downloads, raw tables, baseline, delete a run"],
@@ -338,7 +340,6 @@ A(table([
 A(P("Sidebar: <b>Start a new run</b> (demo with seed and length, normal-only traffic, upload a pcap or "
     "NS2 trace, live capture). Light/dark: the three-dot menu at the top right → Settings.", "small"))
 
-A(PageBreak())
 A(P("9. Live demo script (about 5 minutes)", "h1"))
 A(table([
     ["Time", "Do", "Say"],
@@ -439,7 +440,7 @@ story += bullets([
     "NS2 Simulation Module added, as the faculty suggested; now executed in NS2 with all checks passing.",
     "Full implementation of all 9 modules, CLI, REST API and dashboard; automated tests.",
     "Fewer false alarms; honest \"not enough traffic\" instead of \"no anomalies\" for short captures.",
-    "Redesigned dashboard with 9 pages, Copilot panel, link-failure simulator, light and dark themes.",
+    "Redesigned dashboard with 10 pages (including an NS2 lab page), Copilot panel, link-failure simulator, light and dark themes.",
     "New analysis: TCP connection outcomes, DNS insights, host inventory with roles and services, and a "
     "0-100 health score; NS2 scenario also run with a RED queue: 31% lower delay during congestion.",
 ])
