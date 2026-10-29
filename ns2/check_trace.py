@@ -24,10 +24,12 @@ DATA = {"tcp", "cbr", "udp", "exp", "pareto", "ftp", "telnet"}
 
 
 def node(a):
+    """Node number from an NS2 address."""
     return int(a.split(".")[0])
 
 
 def load(path):
+    """Reads the trace: packet events, link up/down lines, other lines."""
     events, link_lines, other = [], [], defaultdict(int)
     with open(path, errors="replace") as f:
         for line in f:
@@ -49,6 +51,7 @@ def load(path):
 
 
 def analyse(events):
+    """Follows every data packet: send, receive or drop time and its hops."""
     pk = {}
     hops = defaultdict(list)
     for ev, t, frm, to, typ, size, fid, src, dst, seq, pid in sorted(events, key=lambda e: e[1]):
@@ -84,6 +87,7 @@ def routes(pk, hops):
 def scenario_checks(pk, hops):
     """The five expected behaviours of netmind_scenario.tcl: [(name, passed)], and the numbers."""
     def window_stats(t0, t1, fid=None):
+        """Drops and mean delay of packets sent in a time range."""
         sel = [p for p in pk.values() if t0 <= p["t"] < t1 and (fid is None or p["fid"] == fid)]
         got = [p for p in sel if p["recv"] is not None]
         drop = [p for p in sel if p["recv"] is None and p["drop"] is not None]
@@ -108,6 +112,7 @@ def scenario_checks(pk, hops):
 
 
 def main():
+    """Prints the per-flow, per-window, routes and scenario-check report."""
     ap = argparse.ArgumentParser()
     ap.add_argument("trace")
     ap.add_argument("--window", type=float, default=1.0)

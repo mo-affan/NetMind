@@ -14,6 +14,7 @@ from .records import guess_app, to_frame
 
 def _flags(tcp) -> str:
     # Scapy prints flags in bit order F S R P A U E C, giving "S", "SA", "A", "PA", "FA", "R".
+    """TCP flags as text: S, SA, A, PA, FA, R."""
     return str(tcp.flags)
 
 
@@ -54,6 +55,7 @@ def packet_to_record(pkt) -> dict | None:
 
 
 def packets_to_frame(packets: Iterable) -> pd.DataFrame:
+    """Converts Scapy packets to the packet table."""
     return to_frame([r for r in (packet_to_record(p) for p in packets) if r is not None])
 
 
@@ -79,5 +81,6 @@ def live_capture(iface: str | None = None, count: int = 0, timeout: int = 30,
 
 
 def list_interfaces() -> list[str]:
+    """Names of the network interfaces Scapy can capture on."""
     from scapy.all import get_if_list
     return list(get_if_list())

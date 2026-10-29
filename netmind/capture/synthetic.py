@@ -33,6 +33,7 @@ IP_H, TCP_H, UDP_H, ICMP_H = 20, 20, 8, 8
 
 
 def _event_at(t: float, events=None) -> str:
+    """Which injected problem (if any) is active at time t."""
     for start, end, name in (EVENTS if events is None else events):
         if start <= t < end:
             return name
@@ -40,7 +41,9 @@ def _event_at(t: float, events=None) -> str:
 
 
 class _Gen:
+    """The traffic generator: keeps the random seed, records and client ports."""
     def __init__(self, seed: int, events=None):
+        """Seeds the random generator so every run is reproducible."""
         self.events = EVENTS if events is None else events
         self.r = random.Random(seed)
         self.recs: list[dict] = []
@@ -54,19 +57,23 @@ class _Gen:
         return max(0.0005, self.r.gauss(base, jitter))
 
     def loss(self, t: float, p_congested: float = 0.07) -> bool:
+        """Drops a packet at random during congestion (7% by default)"""
         return _event_at(t, self.events) == "congestion" and self.r.random() < p_congested
 
     def tcp(self, ts, src, dst, sport, dport, flags, seq, ack, payload=0):
+        """Adds one TCP packet record."""
         self.recs.append(dict(ts=ts, src=src, dst=dst, sport=sport, dport=dport, proto="TCP",
                               tcp_flags=flags, seq=seq % 2**32, ack=ack % 2**32,
                               payload_len=payload, length=IP_H + TCP_H + payload))
 
     def next_port(self, c):
+        """Next ephemeral client port (49152 upwards)"""
         self.ports[c] = 49152 + (self.ports[c] - 49151) % 16000
         return self.ports[c]
 
     # --- traffic types ---------------------------------------------------------
     def dns(self, t, client, name):
+        """A DNS query and its response, same transaction id."""
         qid = self.r.randrange(65536)
         sport = self.next_port(client)
         q = 17 + len(name)
@@ -81,6 +88,7 @@ class _Gen:
                               dns_qname=name, payload_len=a, length=IP_H + UDP_H + a))
 
     def web(self, t, client, server):
+        """A full TCP connection: handshake, request, response, close."""
         _, port = WEB_SERVERS[server]
         sport = self.next_port(client)
         c_isn, s_isn = self.r.randrange(2**32), self.r.randrange(2**32)
@@ -114,6 +122,7 @@ class _Gen:
         self.tcp(fin + rtt + 0.0003, client, server, sport, port, "A", c_isn + 2 + req, s_isn + 2 + off)
 
     def ping(self, t, src, dst, ident, seq, base=0.003):
+        """An ICMP echo request and (unless lost) its reply."""
         self.recs.append(dict(ts=t, src=src, dst=dst, proto="ICMP", icmp_type=8, icmp_id=ident,
                               icmp_seq=seq, payload_len=56, length=IP_H + ICMP_H + 56))
         if self.loss(t, 0.15):

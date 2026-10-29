@@ -74,6 +74,7 @@ def sparkline_svg(values, width: int = 132, height: int = 34, colour: str = "#2a
 
 
 def _num(v):
+    """A float, or None for missing values."""
     try:
         f = float(v)
         return None if math.isnan(f) else f
@@ -88,6 +89,7 @@ def kpis(state: dict, metrics: pd.DataFrame, scores: pd.DataFrame) -> list[dict]
     lat_name = "Delay" if ns2 else "Latency"
 
     def col(name):
+        """A metrics column as a list for the sparkline."""
         return metrics[name].tolist() if name in metrics.columns else []
 
     lat = metrics["latency_ms"] if "latency_ms" in metrics.columns else pd.Series(dtype=float)
@@ -123,10 +125,12 @@ def kpis(state: dict, metrics: pd.DataFrame, scores: pd.DataFrame) -> list[dict]
 
 
 def _fmt(v, unit, digits=1):
+    """Number with its unit, or 'n/a'."""
     return "n/a" if v is None else f"{v:.{digits}f} {unit}"
 
 
 def kpi_cards_html(cards: list[dict]) -> str:
+    """HTML for the row of KPI cards."""
     out = ['<div class="nm-kpis">']
     for c in cards:
         out.append(
@@ -139,6 +143,7 @@ def kpi_cards_html(cards: list[dict]) -> str:
 
 
 def feature_name(f: str) -> str:
+    """Readable name of a feature ('dst_ports' -> 'Destination ports')"""
     return {"pps": "Packets per second", "avg_pkt_size": "Average packet size (bytes)",
             "connections": "Connections", "avg_conn_duration": "Connection duration (s)",
             "dst_ports": "Destination ports", "tcp_udp_ratio": "TCP/UDP ratio",

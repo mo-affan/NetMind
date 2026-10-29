@@ -28,6 +28,7 @@ TYPES = {
 
 
 def classify(top: list[dict]) -> str:
+    """Names an incident from its strongest features: scan, congestion, flood, spike."""
     z = {f["feature"]: f["z"] for f in top}
     perf = max((z.get(f, 0) for f in ("latency_ms", "loss_pct", "retransmissions")), default=0)
     small_pkts = "avg_pkt_size" in z and z["avg_pkt_size"] <= 0

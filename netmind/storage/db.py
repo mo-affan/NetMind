@@ -26,7 +26,9 @@ TABLES = ["metrics", "anomalies", "incidents", "nodes", "links", "flows", "proto
 
 
 class NetMindDB:
+    """The SQLite database of runs and their tables."""
     def __init__(self, path: str | Path = DEFAULT_DB):
+        """Opens (or creates) the database file and the runs table."""
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.conn = sqlite3.connect(self.path, check_same_thread=False)
@@ -37,19 +39,23 @@ class NetMindDB:
 
     # ---- runs ---------------------------------------------------------------
     def new_run(self, name: str, source: str, summary: dict | None = None) -> int:
+        """Adds a run row and returns its id."""
         cur = self.conn.execute("INSERT INTO runs (name, source, created, summary) VALUES (?,?,?,?)",
                                 (name, source, time.time(), json.dumps(summary or {})))
         self.conn.commit()
         return int(cur.lastrowid)
 
     def update_summary(self, run_id: int, summary: dict) -> None:
+        """Replaces a run's JSON summary."""
         self.conn.execute("UPDATE runs SET summary=? WHERE id=?", (json.dumps(summary), run_id))
         self.conn.commit()
 
     def runs(self) -> pd.DataFrame:
+        """All runs, newest first."""
         return pd.read_sql("SELECT id, name, source, created FROM runs ORDER BY id DESC", self.conn)
 
     def run(self, run_id: int) -> dict:
+        """One run with its summary."""
         row = self.conn.execute("SELECT id, name, source, created, summary FROM runs WHERE id=?",
                                 (run_id,)).fetchone()
         if row is None:
@@ -58,11 +64,13 @@ class NetMindDB:
                 "summary": json.loads(row[4] or "{}")}
 
     def latest_run_id(self) -> int | None:
+        """Id of the newest run."""
         row = self.conn.execute("SELECT MAX(id) FROM runs").fetchone()
         return row[0]
 
     # ---- tables ---------------------------------------------------------------
     def save(self, table: str, run_id: int, df: pd.DataFrame) -> None:
+        """Writes a table (metrics, flows, ...) for a run."""
         if table not in TABLES:
             raise ValueError(f"unknown table {table}")
         if df is None or df.empty:
@@ -82,6 +90,7 @@ class NetMindDB:
         self.conn.commit()
 
     def load(self, table: str, run_id: int) -> pd.DataFrame:
+        """Reads a table for a run."""
         if table not in TABLES:
             raise ValueError(f"unknown table {table}")
         try:
@@ -91,6 +100,7 @@ class NetMindDB:
         return df.drop(columns=["run_id"]).dropna(axis=1, how="all")
 
     def delete_run(self, run_id: int) -> None:
+        """Deletes a run from every table."""
         for t in TABLES:
             try:
                 self.conn.execute(f"DELETE FROM {t} WHERE run_id=?", (run_id,))
@@ -100,4 +110,5 @@ class NetMindDB:
         self.conn.commit()
 
     def close(self) -> None:
+        """Closes the database connection."""
         self.conn.close()

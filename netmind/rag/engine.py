@@ -25,6 +25,7 @@ KNOWLEDGE_DIR = Path(__file__).parent / "knowledge"
 
 @dataclass
 class Chunk:
+    """One piece of a knowledge note: id, file, title, text."""
     id: int
     source: str   # file name
     title: str    # "Document title > Section"
@@ -63,43 +64,54 @@ def chunk_documents(docs: list[tuple[str, str]], max_words: int = 140) -> list[C
 
 
 class TfidfEmbedder:
+    """Turns text into TF-IDF vectors (works offline)"""
     name = "tfidf"
 
     def __init__(self):
+        """TF-IDF with words and word pairs, English stop words removed."""
         from sklearn.feature_extraction.text import TfidfVectorizer
         self.vec = TfidfVectorizer(ngram_range=(1, 2), sublinear_tf=True, stop_words="english",
                                    min_df=1)
 
     def fit(self, texts: list[str]) -> "TfidfEmbedder":
+        """Learns the vocabulary from the chunks."""
         self.vec.fit(texts)
         return self
 
     def encode(self, texts: list[str]) -> np.ndarray:
+        """Text -> TF-IDF vector."""
         return self.vec.transform(texts).toarray().astype("float32")
 
 
 class SentenceEmbedder:
+    """Optional: Sentence-Transformers embeddings (all-MiniLM-L6-v2)"""
     name = "sentence"
 
     def __init__(self, model: str = "sentence-transformers/all-MiniLM-L6-v2"):
+        """Loads the embedding model."""
         from sentence_transformers import SentenceTransformer  # optional dependency
         self.model_name = model
         self.model = SentenceTransformer(model)
 
     def fit(self, texts):
+        """Nothing to learn: the model is pre-trained."""
         return self
 
     def encode(self, texts: list[str]) -> np.ndarray:
+        """Text -> normalised embedding vector."""
         return np.asarray(self.model.encode(texts, normalize_embeddings=True), dtype="float32")
 
     def __getstate__(self):  # do not pickle the model weights; reload by name
+        """Saves only the model name, not the weights."""
         return {"model_name": self.model_name}
 
     def __setstate__(self, state):
+        """Reloads the model by name."""
         self.__init__(state["model_name"])
 
 
 def _normalise(v: np.ndarray) -> np.ndarray:
+    """Scales vectors to length 1 so a dot product is cosine similarity."""
     n = np.linalg.norm(v, axis=1, keepdims=True)
     return v / np.where(n == 0, 1, n)
 
@@ -108,6 +120,7 @@ class VectorStore:
     """Cosine-similarity index: FAISS if available, otherwise NumPy."""
 
     def __init__(self, vectors: np.ndarray):
+        """Stores the vectors, in a FAISS index if FAISS is installed."""
         self.vectors = _normalise(vectors.astype("float32"))
         self.index = None
         try:
@@ -119,9 +132,11 @@ class VectorStore:
 
     @property
     def backend(self) -> str:
+        """'faiss' or 'numpy'."""
         return "faiss" if self.index is not None else "numpy"
 
     def search(self, q: np.ndarray, k: int) -> tuple[np.ndarray, np.ndarray]:
+        """The k chunks with the highest cosine similarity to the query."""
         q = _normalise(q.astype("float32").reshape(1, -1))
         if self.index is not None:
             scores, ids = self.index.search(q, k)
@@ -131,19 +146,24 @@ class VectorStore:
         return sims[ids], ids
 
     def __getstate__(self):
+        """Saves the vectors only."""
         return {"vectors": self.vectors}
 
     def __setstate__(self, state):
+        """Rebuilds the index from the vectors."""
         self.__init__(state["vectors"])
 
 
 class KnowledgeBase:
+    """The knowledge base: chunks + embedder + vector store."""
     def __init__(self, chunks: list[Chunk], embedder, store: VectorStore):
+        """Keeps the chunks, embedder and store together."""
         self.chunks, self.embedder, self.store = chunks, embedder, store
 
     @classmethod
     def build(cls, folder: str | Path = KNOWLEDGE_DIR, backend: str = "auto",
               extra_docs: list[tuple[str, str]] | None = None) -> "KnowledgeBase":
+        """Loads the 9 notes, chunks them and builds the index."""
         chunks = chunk_documents(load_documents(folder) + (extra_docs or []))
         texts = [f"{c.title}. {c.text}" for c in chunks]
         embedder = None
@@ -159,19 +179,23 @@ class KnowledgeBase:
         return cls(chunks, embedder, VectorStore(embedder.encode(texts)))
 
     def search(self, query: str, k: int = 4, min_score: float = 0.05) -> list[dict]:
+        """Top-k chunks for a query, scores of at least 0.05."""
         scores, ids = self.store.search(self.embedder.encode([query])[0], k)
         return [{"id": int(i), "score": round(float(s), 3), "title": self.chunks[i].title,
                  "source": self.chunks[i].source, "text": self.chunks[i].text}
                 for s, i in zip(scores, ids) if i >= 0 and s >= min_score]
 
     def info(self) -> dict:
+        """Number of chunks and documents, embedder and store used."""
         return {"chunks": len(self.chunks), "documents": len({c.source for c in self.chunks}),
                 "embedder": self.embedder.name, "vector_store": self.store.backend}
 
     def save(self, path: str | Path) -> None:
+        """Saves the built knowledge base."""
         Path(path).parent.mkdir(parents=True, exist_ok=True)
         joblib.dump(self, path)
 
     @staticmethod
     def load(path: str | Path) -> "KnowledgeBase":
+        """Loads a saved knowledge base."""
         return joblib.load(path)

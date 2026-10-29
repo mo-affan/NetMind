@@ -64,6 +64,7 @@ TOPIC_WORDS = {
 
 
 def _fmt_feature(f: dict) -> str:
+    """'ports 311 vs normal 10' text for one feature."""
     names = {"pps": "packets/s", "avg_pkt_size": "avg packet size (B)", "connections": "connections",
              "avg_conn_duration": "connection duration (s)", "dst_ports": "distinct dest ports",
              "tcp_udp_ratio": "TCP/UDP ratio", "bytes_per_sec": "bytes/s",
@@ -110,6 +111,7 @@ def state_to_text(state: dict) -> str:
 
 
 def incidents_to_text(incidents: list[dict], status: dict | None = None) -> str:
+    """The incidents and their evidence as text for the prompt."""
     if status and status.get("state") == "insufficient_data":
         return ("Anomaly detection was NOT run: not enough traffic to learn a normal baseline ("
                 f"{status.get('reason')}). Do not claim the network is normal or abnormal "
@@ -127,6 +129,7 @@ def incidents_to_text(incidents: list[dict], status: dict | None = None) -> str:
 
 
 def build_prompt(question: str, state: dict, docs: list[dict]) -> str:
+    """Question + network state + incidents + retrieved knowledge [1]-[4]."""
     knowledge = "\n\n".join(f"[{i}] {d['title']}\n{d['text']}" for i, d in enumerate(docs, 1))
     return (f"QUESTION: {question}\n\nNETWORK STATE:\n{state_to_text(state)}\n\n"
             f"INCIDENTS:\n{incidents_to_text(state.get('incidents', []), state.get('anomaly_status'))}\n\n"
@@ -137,6 +140,7 @@ def build_prompt(question: str, state: dict, docs: list[dict]) -> str:
 # LLM backends
 # ---------------------------------------------------------------------------
 def _post(url: str, payload: dict, headers: dict, timeout: float = 60) -> dict:
+    """Sends a JSON request with the standard library (no extra package)"""
     req = urllib.request.Request(url, data=json.dumps(payload).encode(),
                                  headers={"content-type": "application/json", **headers})
     with urllib.request.urlopen(req, timeout=timeout) as r:
@@ -144,6 +148,7 @@ def _post(url: str, payload: dict, headers: dict, timeout: float = 60) -> dict:
 
 
 def call_anthropic(system: str, prompt: str) -> str:
+    """Asks the Claude API (needs ANTHROPIC_API_KEY)"""
     key = os.environ["ANTHROPIC_API_KEY"]
     model = os.environ.get("NETMIND_LLM_MODEL", "claude-haiku-5-5")
     data = _post("https://api.anthropic.com/v1/messages",
@@ -154,10 +159,12 @@ def call_anthropic(system: str, prompt: str) -> str:
 
 
 def ollama_url() -> str:
+    """Where the local Ollama server is (localhost:11434)"""
     return os.environ.get("NETMIND_OLLAMA_URL", "http://localhost:11434")
 
 
 def call_ollama(system: str, prompt: str) -> str:
+    """Asks a local Ollama model (llama3.2 by default)"""
     model = os.environ.get("NETMIND_OLLAMA_MODEL", "llama3.2")
     data = _post(f"{ollama_url()}/api/chat",
                  {"model": model, "stream": False,
@@ -167,6 +174,7 @@ def call_ollama(system: str, prompt: str) -> str:
 
 
 def ollama_available() -> bool:
+    """Checks whether Ollama is running."""
     try:
         urllib.request.urlopen(f"{ollama_url()}/api/tags", timeout=1.5)
         return True
@@ -175,6 +183,7 @@ def ollama_available() -> bool:
 
 
 def pick_backend() -> str:
+    """Chooses Claude, Ollama or offline from what is available."""
     choice = os.environ.get("NETMIND_LLM", "auto").lower()
     if choice != "auto":
         return choice
@@ -201,11 +210,13 @@ def is_concept_question(question: str) -> bool:
 
 
 def _topics(question: str) -> set[str]:
+    """Which topics a question is about (scan, congestion, DNS...)"""
     q = question.lower()
     return {t for t, words in TOPIC_WORDS.items() if any(w in q for w in words)}
 
 
 def _first_sentences(text: str, n: int = 2) -> str:
+    """The first n sentences of a text."""
     import re
     return " ".join(re.split(r"(?<=[.!?])\s+", text)[:n])
 
@@ -255,6 +266,7 @@ def insight_paragraphs(question: str, state: dict) -> list[str]:
 
 
 def offline_answer(question: str, state: dict, docs: list[dict]) -> str:
+    """Rule-based answer from the incidents and notes, no LLM."""
     incidents = state.get("incidents", [])
     routes = state.get("routes", [])
     topics = _topics(question)
@@ -265,6 +277,7 @@ def offline_answer(question: str, state: dict, docs: list[dict]) -> str:
     cite = {d["source"]: i for i, d in enumerate(docs, 1)}
 
     def ref(*names):
+        """The [n] citation for a knowledge note."""
         for n in names:
             if n in cite:
                 return f" [{cite[n]}]"
@@ -354,12 +367,15 @@ def offline_answer(question: str, state: dict, docs: list[dict]) -> str:
 
 # ---------------------------------------------------------------------------
 class Copilot:
+    """The Copilot: knowledge base, backend and top-k (4)"""
     def __init__(self, kb: KnowledgeBase | None = None, backend: str | None = None, k: int = 4):
+        """Builds the TF-IDF knowledge base and picks the backend."""
         self.kb = kb or KnowledgeBase.build(backend="tfidf")
         self.backend = backend or pick_backend()
         self.k = k
 
     def retrieve(self, question: str, state: dict) -> list[dict]:
+        """Finds the notes relevant to the question and the incidents."""
         topics = _topics(question)
         if is_concept_question(question):
             return self.kb.search(question, self.k)
@@ -368,6 +384,7 @@ class Copilot:
         return self.kb.search(f"{question} {extra}".strip(), self.k)
 
     def ask(self, question: str, state: dict) -> dict:
+        """Retrieve, build the prompt, answer; falls back to offline on failure."""
         docs = self.retrieve(question, state)
         prompt = build_prompt(question, state, docs)
         used = self.backend

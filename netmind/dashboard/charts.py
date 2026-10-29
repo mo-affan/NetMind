@@ -24,6 +24,7 @@ KIND_NAMES = {"local": "Local host", "gateway": "Gateway", "remote": "Remote ser
 
 
 def style(fig: go.Figure, height: int, legend: bool = False) -> go.Figure:
+    """Common chart look: size, margins, font, transparent background."""
     fig.update_layout(height=height, margin=dict(l=8, r=8, t=28, b=8), plot_bgcolor=CLEAR,
                       paper_bgcolor=CLEAR, font=dict(family=FONT, size=12),
                       hoverlabel=dict(font=dict(family=FONT)),
@@ -35,6 +36,7 @@ def style(fig: go.Figure, height: int, legend: bool = False) -> go.Figure:
 
 
 def _bands(fig, incidents, row=None, labels=True):
+    """Draws the red incident bands on a chart."""
     for e in incidents:
         kw = dict(row=row, col=1) if row else {}
         fig.add_vrect(x0=e["start_t"], x1=e["end_t"], fillcolor=RED, opacity=0.13, line_width=0,
@@ -87,6 +89,7 @@ def metric_panels(metrics: pd.DataFrame, incidents: list[dict], baseline: dict,
 
 
 def anomaly_chart(scores: pd.DataFrame, threshold: float | None, incidents: list[dict]) -> go.Figure:
+    """Anomaly score over time with the threshold line."""
     fig = go.Figure()
     if "anomaly_score" in scores.columns and scores["anomaly_score"].notna().any():
         fig.add_trace(go.Scatter(x=scores["t"], y=scores["anomaly_score"], mode="lines",
@@ -108,6 +111,7 @@ def anomaly_chart(scores: pd.DataFrame, threshold: float | None, incidents: list
 
 
 def hbars(labels, values, text=None, height=None, colour=BLUE, xtitle="") -> go.Figure:
+    """Horizontal bar chart (protocols, talkers, DNS names)"""
     fig = go.Figure(go.Bar(x=values, y=labels, orientation="h", marker=dict(color=colour),
                            text=text, textposition="outside", textfont=dict(size=11),
                            cliponaxis=False, hovertemplate="%{y}: %{x:,}<extra></extra>"))
@@ -133,6 +137,7 @@ def evidence_bars(features: list[dict]) -> go.Figure:
 
 def zoom_chart(metrics: pd.DataFrame, incident: dict, col: str, name: str,
                baseline: float | None) -> go.Figure:
+    """One feature zoomed around an incident, normal level dashed."""
     span = incident["end_t"] - incident["start_t"]
     lo, hi = incident["start_t"] - max(10, span), incident["end_t"] + max(10, span)
     m = metrics[(metrics["t"] >= lo) & (metrics["t"] <= hi)]
@@ -150,6 +155,7 @@ def zoom_chart(metrics: pd.DataFrame, incident: dict, col: str, name: str,
 
 
 def rtt_boxes(rtt: pd.DataFrame) -> go.Figure:
+    """RTT distribution per type: handshake, ping, DNS (log scale)"""
     names = {"tcp_handshake": "TCP handshake", "icmp_echo": "Ping (ICMP)", "dns": "DNS lookup"}
     fig = go.Figure()
     for kind, n in names.items():
@@ -167,6 +173,7 @@ def rtt_boxes(rtt: pd.DataFrame) -> go.Figure:
 
 def compare_chart(m1: pd.DataFrame, m2: pd.DataFrame, col: str, n1: str, n2: str,
                   title: str) -> go.Figure:
+    """One measure of two runs on the same axes."""
     fig = go.Figure()
     for m, n, c in ((m1, n1, BLUE), (m2, n2, ORANGE)):
         if col in m.columns:
@@ -181,6 +188,7 @@ def compare_chart(m1: pd.DataFrame, m2: pd.DataFrame, col: str, n1: str, n2: str
 
 def topology_chart(G: nx.Graph, path_edges: set = frozenset(), failed: tuple | None = None,
                    seed: int = 3) -> go.Figure:
+    """The host graph, shortest path highlighted, failed link marked."""
     pos = nx.kamada_kawai_layout(G) if G.number_of_nodes() > 2 else nx.spring_layout(G, seed=seed)
     fig = go.Figure()
     max_pk = max([d.get("packets", 1) for _, _, d in G.edges(data=True)] or [1])

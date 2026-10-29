@@ -53,6 +53,7 @@ def _load(name: str):
 
 
 def scenario_source() -> str:
+    """The text of netmind_scenario.tcl."""
     return SCENARIO.read_text()
 
 

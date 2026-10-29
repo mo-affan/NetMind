@@ -56,6 +56,7 @@ def build_graph(df: pd.DataFrame, rtt: pd.DataFrame | None = None) -> nx.Graph:
 
 
 def _kind(host: str) -> str:
+    """Labels a host gateway, local, external or NS2 node."""
     if host.endswith(".1"):
         return "gateway"
     if host.startswith(("10.", "192.168.", "172.")):
@@ -111,10 +112,12 @@ def distance_vector_tables(G: nx.Graph, weight: str = "latency", max_rounds: int
 
 
 def edges_frame(G: nx.Graph) -> pd.DataFrame:
+    """Graph links as a table for storage."""
     return pd.DataFrame([{"a": a, "b": b, **d} for a, b, d in G.edges(data=True)])
 
 
 def nodes_frame(G: nx.Graph) -> pd.DataFrame:
+    """Graph nodes as a table for storage."""
     return pd.DataFrame([{"node": n, "degree": G.degree(n), **d} for n, d in G.nodes(data=True)])
 
 

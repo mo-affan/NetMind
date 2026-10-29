@@ -28,6 +28,7 @@ CONN_COLUMNS = ["client", "cport", "server", "sport", "service", "start", "state
 
 
 def _key(a, ap, b, bp) -> pd.Series:
+    """Builds a 'client:port>server:port' key to match packets of one connection."""
     return a.astype(str) + ":" + ap.astype(str) + ">" + b.astype(str) + ":" + bp.astype(str)
 
 
@@ -248,12 +249,14 @@ def window_health(metrics: pd.DataFrame, scores: pd.DataFrame | None, baseline: 
 
 
 def grade(score: float | None) -> str:
+    """Turns a health score into Good (90+), Fair (70-90) or Poor."""
     if score is None:
         return "n/a"
     return "Good" if score >= 90 else "Fair" if score >= 70 else "Poor"
 
 
 def health_summary(h: pd.DataFrame) -> dict:
+    """The run's average health, its grade and the worst window."""
     if h.empty:
         return {"score": None, "grade": "n/a"}
     score = round(float(h["health"].mean()), 1)

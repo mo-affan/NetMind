@@ -28,6 +28,7 @@ pd.set_option("display.width", 200)
 
 
 def main():
+    """Full trace parser: per-window table, per-flow totals, CSV output."""
     ap = argparse.ArgumentParser()
     ap.add_argument("trace")
     ap.add_argument("--window", type=float, default=1.0)

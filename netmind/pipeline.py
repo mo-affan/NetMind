@@ -39,6 +39,7 @@ def _no_detection(feats: pd.DataFrame, reason: str,
 
 
 def _save_common(db, run_id, metrics, scores, incidents, G, extra_summary):
+    """Adds health, then saves metrics, scores, incidents and topology."""
     h = window_health(metrics, scores, extra_summary.get("baseline", {}))
     metrics = metrics.assign(health=h["health"].values)
     extra_summary = {**extra_summary, "health": health_summary(h)}

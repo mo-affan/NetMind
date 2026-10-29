@@ -95,6 +95,7 @@ def window_features(df: pd.DataFrame, window: float = 2.0,
 
 
 def _clean(X: pd.DataFrame, features: list[str], fill: dict | None = None) -> pd.DataFrame:
+    """Keeps the feature columns as numbers and fills gaps."""
     X = X[features].astype(float).copy()
     if fill:
         X = X.fillna(fill)
@@ -107,6 +108,7 @@ class AnomalyDetector:
     def __init__(self, features: list[str] | None = None, n_estimators: int = 200,
                  contamination: str | float = "auto", random_state: int = 42,
                  z_threshold: float = 6.0, z_support: float = 4.0):
+        """Sets up the 200-tree Isolation Forest and the z thresholds (6 and 4)"""
         self.features = list(features or FEATURES)
         self.model = IsolationForest(n_estimators=n_estimators, contamination=contamination,
                                      random_state=random_state)
@@ -119,9 +121,11 @@ class AnomalyDetector:
     # log1p tames heavy-tailed counts (a flood has 100x the normal packet rate)
     @staticmethod
     def _tf(X: pd.DataFrame) -> np.ndarray:
+        """log(1 + x) of each feature so huge values don't dominate."""
         return np.log1p(np.clip(X.to_numpy(dtype=float), 0, None))
 
     def fit(self, feats: pd.DataFrame) -> "AnomalyDetector":
+        """Learns normal: scales, trains the forest, sets the threshold, median and MAD."""
         X = _clean(feats, self.features)
         med = X.median()
         self.fill = med.to_dict()
@@ -140,6 +144,7 @@ class AnomalyDetector:
         return self
 
     def deviations(self, X: pd.DataFrame) -> pd.DataFrame:
+        """Robust z-score of every feature: (x - median) / spread."""
         med = pd.Series(self.baseline["median"])[self.features]
         spr = pd.Series(self.baseline["spread"])[self.features]
         return (X[self.features] - med) / spr
@@ -173,11 +178,13 @@ class AnomalyDetector:
         return [i for i in items[:k] if abs(i["z"]) >= 3]
 
     def save(self, path: str | Path) -> None:
+        """Saves the trained detector with joblib."""
         Path(path).parent.mkdir(parents=True, exist_ok=True)
         joblib.dump(self, path)
 
     @staticmethod
     def load(path: str | Path) -> "AnomalyDetector":
+        """Loads a saved detector."""
         return joblib.load(path)
 
 

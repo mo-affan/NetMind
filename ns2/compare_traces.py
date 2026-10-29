@@ -21,6 +21,7 @@ PHASES = [("normal", 0.5, 3.0), ("UDP burst", 3.0, 6.0), ("recovery", 6.0, 7.0),
 
 
 def phase_stats(pk: dict, t0: float, t1: float) -> dict:
+    """Sent, drops, loss, delay and TCP goodput for one phase."""
     sel = [p for p in pk.values() if t0 <= p["t"] < t1]
     got = [p for p in sel if p["recv"] is not None]
     drop = [p for p in sel if p["recv"] is None and p["drop"] is not None]
@@ -34,6 +35,7 @@ def phase_stats(pk: dict, t0: float, t1: float) -> dict:
 
 
 def summarise(path: str) -> dict:
+    """Phase table of one trace."""
     events, _, _ = load(path)
     if not events:
         raise SystemExit(f"No packet events found in {path}. Is this the file written by `$ns trace-all`?")
@@ -42,6 +44,7 @@ def summarise(path: str) -> dict:
 
 
 def main(argv=None) -> int:
+    """Prints two traces side by side and the burst summary line."""
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("trace_a")
     ap.add_argument("trace_b")

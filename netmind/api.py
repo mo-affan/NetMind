@@ -39,6 +39,7 @@ _copilot = None
 
 
 def db() -> NetMindDB:
+    """Opens the database once and reuses it."""
     global _db
     if _db is None:
         _db = NetMindDB(os.environ.get("NETMIND_DB", str(DEFAULT_DB)))
@@ -51,6 +52,7 @@ def _records(df):
 
 
 def _check(run_id: int):
+    """Returns the run or a 404 error if it does not exist."""
     try:
         return db().run(run_id)
     except KeyError:
@@ -59,11 +61,13 @@ def _check(run_id: int):
 
 @app.get("/")
 def root():
+    """GET /: API name and links."""
     return {"name": "NetMind API", "docs": "/docs", "health": "/health", "runs": len(db().runs())}
 
 
 @app.get("/health")
 def health():
+    """GET /health: status, version and number of runs."""
     from netmind import __version__
     return {"status": "ok", "version": __version__, "database": str(db().path),
             "runs": int(len(db().runs())), "latest_run": db().latest_run_id()}
@@ -71,16 +75,20 @@ def health():
 
 @app.get("/runs")
 def runs():
+    """GET /runs: every stored run."""
     return _records(db().runs())
 
 
 @app.get("/runs/{run_id}")
 def run(run_id: int):
+    """GET /runs/{id}: one run and its summary."""
     return _check(run_id)
 
 
 def _table(name: str):
+    """Makes a GET endpoint for one stored table (metrics, flows, ...)"""
     def handler(run_id: int):
+        """Returns that table's rows for the run."""
         _check(run_id)
         return _records(db().load(name, run_id))
     handler.__name__ = f"get_{name}"
@@ -93,6 +101,7 @@ for _name in ("metrics", "anomalies", "protocols", "flows", "hosts", "connection
 
 @app.get("/runs/{run_id}/insights")
 def insights(run_id: int):
+    """GET /runs/{id}/insights: health, connections and DNS."""
     _check(run_id)
     st = get_state(db(), run_id)
     return {k: st.get(k, {}) for k in ("health", "connections", "dns")}
@@ -100,18 +109,21 @@ def insights(run_id: int):
 
 @app.get("/runs/{run_id}/incidents")
 def incidents(run_id: int):
+    """GET /runs/{id}/incidents: the incidents found."""
     _check(run_id)
     return get_state(db(), run_id)["incidents"]
 
 
 @app.get("/runs/{run_id}/topology")
 def topology(run_id: int):
+    """GET /runs/{id}/topology: nodes and links."""
     _check(run_id)
     return {"nodes": _records(db().load("nodes", run_id)),
             "links": _records(db().load("links", run_id))}
 
 
 def _graph(run_id: int):
+    """Rebuilds the topology graph of a run."""
     from netmind.topology import graph_from_frames
     _check(run_id)
     return graph_from_frames(db().load("nodes", run_id), db().load("links", run_id))
@@ -119,6 +131,7 @@ def _graph(run_id: int):
 
 @app.get("/runs/{run_id}/path")
 def path(run_id: int, src: str, dst: str, weight: str = "latency"):
+    """GET /runs/{id}/path: Dijkstra shortest path between two hosts."""
     import networkx as nx
     from netmind.topology import shortest_path
     G = _graph(run_id)
@@ -130,6 +143,7 @@ def path(run_id: int, src: str, dst: str, weight: str = "latency"):
 
 @app.get("/runs/{run_id}/routing")
 def routing(run_id: int, node: str, weight: str = "latency"):
+    """GET /runs/{id}/routing: Link State and Distance Vector tables of a node."""
     from netmind.topology import distance_vector_tables, link_state_tables
     G = _graph(run_id)
     if node not in G:
@@ -140,6 +154,7 @@ def routing(run_id: int, node: str, weight: str = "latency"):
 
 
 class Question(BaseModel):
+    """The body of POST /ask: question, run id, backend."""
     question: str
     run_id: int | None = None
     backend: str | None = None
@@ -147,6 +162,7 @@ class Question(BaseModel):
 
 @app.post("/ask")
 def ask(q: Question):
+    """POST /ask: the Copilot's answer about a run."""
     global _copilot
     from netmind.copilot import Copilot
     state = get_state(db(), q.run_id)

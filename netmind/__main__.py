@@ -31,6 +31,7 @@ class CLIError(Exception):
 
 
 def _db(args):
+    """Opens the SQLite database named by --db."""
     from netmind.storage import NetMindDB
     return NetMindDB(args.db)
 
@@ -43,6 +44,7 @@ def _need(module: str, pip_name: str, purpose: str) -> None:
 
 
 def _print_report(db, run_id: int) -> None:
+    """Prints a run's summary, incidents and health to the terminal."""
     from netmind.pipeline import get_state
     st = get_state(db, run_id)
     run, s, o = st["run"], st["summary"], st["overall"]
@@ -85,6 +87,7 @@ def _print_report(db, run_id: int) -> None:
 
 
 def cmd_demo(args):
+    """`demo`: generates the synthetic traffic, analyses it and prints the report."""
     from netmind.capture.records import to_frame
     from netmind.capture.synthetic import generate_scenario, to_pcap
     from netmind.pipeline import analyze_packets
@@ -112,6 +115,7 @@ def cmd_demo(args):
 
 
 def cmd_capture(args):
+    """`capture`: live capture with Scapy for N seconds, then analysis."""
     _need("scapy", "scapy", "Live capture")
     from netmind.capture.sniffer import live_capture
     from netmind.pipeline import analyze_packets
@@ -131,6 +135,7 @@ def cmd_capture(args):
 
 
 def _load_model(path):
+    """Loads a saved anomaly model if --model was given."""
     if not path:
         return None
     from netmind.anomaly import AnomalyDetector
@@ -139,6 +144,7 @@ def _load_model(path):
 
 
 def cmd_pcap(args):
+    """`pcap`: analyses a .pcap/.pcapng file."""
     _need("scapy", "scapy", "Reading pcap files")
     if not Path(args.file).is_file():
         raise CLIError(f"file not found: {args.file}")
@@ -154,6 +160,7 @@ def cmd_pcap(args):
 
 
 def cmd_ns2(args):
+    """`ns2`: analyses an NS2 trace file as a new run."""
     if not Path(args.trace).is_file():
         raise CLIError(f"trace file not found: {args.trace}")
     from netmind.pipeline import analyze_ns2
@@ -163,6 +170,7 @@ def cmd_ns2(args):
 
 
 def cmd_runs(args):
+    """`runs`: lists the stored runs."""
     db = _db(args)
     r = db.runs()
     if r.empty:
@@ -173,6 +181,7 @@ def cmd_runs(args):
 
 
 def cmd_report(args):
+    """`report`: prints the report of a run (latest by default)"""
     db = _db(args)
     run_id = args.run or db.latest_run_id()
     if run_id is None:
@@ -182,6 +191,7 @@ def cmd_report(args):
 
 
 def cmd_hosts(args):
+    """`hosts`: prints hosts, connection outcomes, DNS and health."""
     from netmind.pipeline import get_state
     db = _db(args)
     run_id = args.run or db.latest_run_id()
@@ -222,6 +232,7 @@ def cmd_hosts(args):
 
 
 def cmd_ask(args):
+    """`ask`: asks the Copilot a question about a run."""
     from netmind.copilot import Copilot
     from netmind.pipeline import get_state
     db = _db(args)
@@ -238,6 +249,7 @@ def cmd_ask(args):
 
 
 def cmd_routes(args):
+    """`routes`: shortest path and Link State vs Distance Vector tables."""
     from netmind.topology import (distance_vector_tables, graph_from_frames, link_state_tables,
                                   shortest_path)
     db = _db(args)
@@ -266,6 +278,7 @@ def cmd_routes(args):
 
 
 def cmd_interfaces(args):
+    """`interfaces`: lists capture interfaces."""
     _need("scapy", "scapy", "Listing capture interfaces")
     from netmind.capture.sniffer import list_interfaces
     for i in list_interfaces():
@@ -273,6 +286,7 @@ def cmd_interfaces(args):
 
 
 def cmd_api(args):
+    """`api`: starts the FastAPI server (docs at /docs)"""
     _need("fastapi", "fastapi", "The API")
     _need("uvicorn", "uvicorn", "The API")
     import uvicorn
@@ -283,6 +297,7 @@ def cmd_api(args):
 
 
 def cmd_dashboard(args):
+    """`dashboard`: starts the Streamlit dashboard on port 8501."""
     _need("streamlit", "streamlit", "The dashboard")
     _need("plotly", "plotly", "The dashboard")
     from netmind.storage import REPO_ROOT
@@ -300,6 +315,7 @@ def cmd_dashboard(args):
 
 
 def main(argv=None):
+    """Parses the command line and runs the chosen sub-command."""
     from netmind import __version__
     from netmind.storage import DATA_DIR, DEFAULT_DB
     p = argparse.ArgumentParser(prog="python -m netmind",

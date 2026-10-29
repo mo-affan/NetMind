@@ -39,6 +39,7 @@ st.markdown(CSS, unsafe_allow_html=True)
 # helpers
 # ---------------------------------------------------------------------------
 def _st_version() -> tuple[int, int]:
+    """Installed Streamlit version, for compatibility."""
     try:
         major, minor = st.__version__.split(".")[:2]
         return int(major), int(minor)
@@ -58,11 +59,13 @@ def stretch(element, *args, **kwargs):
 
 
 def chart(fig, key=None):
+    """Draws a Plotly chart full width."""
     stretch(st.plotly_chart, fig, config={"displaylogo": False}, key=key)
 
 
 def _db_path() -> str:
     # --db from `python -m netmind dashboard`, else NETMIND_DB, else data/netmind.db
+    """Database path from --db, NETMIND_DB or data/netmind.db."""
     p = argparse.ArgumentParser(add_help=False)
     p.add_argument("--db", default=os.environ.get("NETMIND_DB", str(DEFAULT_DB)))
     a, _ = p.parse_known_args()
@@ -71,16 +74,19 @@ def _db_path() -> str:
 
 @st.cache_resource
 def get_db(path: str) -> NetMindDB:
+    """Opens the database (cached)"""
     return NetMindDB(path)
 
 
 @st.cache_resource
 def get_copilot():
+    """Creates the Copilot once (cached)"""
     from netmind.copilot import Copilot
     return Copilot()
 
 
 def esc(x) -> str:
+    """Escapes text before putting it in HTML."""
     return html.escape(str(x))
 
 
@@ -92,6 +98,7 @@ ss.setdefault("page", PAGES[0])
 
 
 def flash(kind: str, msg: str):
+    """Stores a success or error message for the next refresh."""
     ss["flash"] = (kind, msg)
 
 
@@ -99,15 +106,18 @@ def flash(kind: str, msg: str):
 # callbacks (they run before the page is drawn, so they may change widget values)
 # ---------------------------------------------------------------------------
 def cb_ask(q: str):
+    """Queues a question for the Copilot."""
     ss["pending_q"] = q
 
 
 def cb_ask_and_open(q: str):
+    """Queues a question and opens the Copilot page."""
     ss["pending_q"] = q
     ss["page"] = "Copilot"
 
 
 def cb_overview_submit():
+    """Sends the question typed in the Overview panel."""
     q = (ss.get("ov_q") or "").strip()
     if q:
         ss["pending_q"] = q
@@ -115,12 +125,14 @@ def cb_overview_submit():
 
 
 def _select_new_run(run_id: int, what: str):
+    """Selects a newly made run and opens Overview."""
     ss["run_sel"] = run_id
     ss["page"] = "Overview"
     flash("success", f"{what} analysed and saved as run #{run_id}.")
 
 
 def cb_demo():
+    """Generate and analyse: makes a synthetic demo run."""
     from netmind.capture.records import to_frame
     from netmind.capture.synthetic import generate_scenario
     events = None if ss.get("demo_events", True) else []
@@ -135,6 +147,7 @@ def cb_demo():
 
 
 def cb_upload():
+    """Analyse file: analyses an uploaded pcap or NS2 trace."""
     up = ss.get("upload")
     if up is None:
         flash("error", "Choose a .pcap, .pcapng or NS2 .tr file first.")
@@ -156,6 +169,7 @@ def cb_upload():
 
 
 def cb_capture():
+    """Capture and analyse: live capture from the sidebar."""
     try:
         from netmind.capture.sniffer import live_capture
     except ImportError:
@@ -189,6 +203,7 @@ def _saved_upload(key: str) -> str | None:
 
 
 def cb_ns2_analyse(path: str, name: str):
+    """NS2 lab: turns the checked trace into a NetMind run."""
     try:
         rid = analyze_ns2(path, name, db)
         _select_new_run(rid, name)
@@ -197,6 +212,7 @@ def cb_ns2_analyse(path: str, name: str):
 
 
 def cb_delete(run_id: int):
+    """Deletes a run and its chat."""
     db.delete_run(run_id)
     ss.pop("run_sel", None)
     ss["chats"].pop(run_id, None)
@@ -293,6 +309,7 @@ def header(title: str | None = None):
 # Copilot (shared by the Overview panel and the Copilot page)
 # ---------------------------------------------------------------------------
 def answer_pending():
+    """Answers the queued question and saves it to the chat history."""
     q = ss.pop("pending_q", None)
     if not q:
         return
@@ -305,6 +322,7 @@ def answer_pending():
 
 
 def show_history(limit: int | None = None):
+    """Shows the conversation with backend and sources."""
     hist = ss["chats"].get(run_id, [])
     if limit:
         hist = hist[-limit:]
@@ -317,6 +335,7 @@ def show_history(limit: int | None = None):
 
 
 def copilot_panel():
+    """The Copilot box on the Overview page."""
     st.markdown('<div class="nm-panel-title">Ask the Copilot</div>'
                 '<div class="nm-panel-sub">Answers use this run\'s measurements, its incidents and '
                 'the networking knowledge base.</div>', unsafe_allow_html=True)
@@ -338,6 +357,7 @@ def copilot_panel():
 # pages
 # ---------------------------------------------------------------------------
 def page_overview():
+    """Overview page: traffic trace, KPIs, latency/loss, protocols, Copilot."""
     header()
     rate_col = "pps"
     chart(charts.network_trace(metrics, incidents, rate_col, "Packets per second"), key="trace")
@@ -390,6 +410,7 @@ def page_overview():
 
 
 def page_incidents():
+    """Incidents page: score chart, one card per incident with evidence."""
     header("Incidents")
     status = state.get("anomaly_status") or {}
     if status.get("state") == "insufficient_data":
@@ -436,6 +457,7 @@ def page_incidents():
 
 
 def page_traffic():
+    """Traffic page: protocols and the searchable flow table."""
     header("Traffic")
     protos = db.load("protocols", run_id)
     flows = db.load("flows", run_id)
@@ -479,6 +501,7 @@ def page_traffic():
 
 
 def page_hosts():
+    """Hosts & services page: scanner warning, hosts, connections, DNS."""
     header("Hosts & services")
     inv = db.load("hosts", run_id)
     conn, dns = state.get("connections") or {}, state.get("dns") or {}
@@ -557,6 +580,7 @@ def page_hosts():
 
 
 def page_performance():
+    """Performance page: health, latency, jitter, loss, throughput panels."""
     header("Performance")
     lat_name = "One-way delay (ms)" if is_ns2 else "Latency (ms)"
     panels = [("health", "Network health (0-100)"), ("latency_ms", lat_name), ("jitter_ms", "Jitter (ms)"),
@@ -589,6 +613,7 @@ def page_performance():
 
 
 def page_topology():
+    """Topology & routing page: graph, Dijkstra, LS vs DV, link failure."""
     import networkx as nx
     from netmind.topology import (graph_from_frames, link_state_tables, shortest_path)
     header("Topology & routing")
@@ -654,6 +679,7 @@ def page_topology():
 
 
 def page_ns2():
+    """NS2 lab page: topology, TCL script, how to run, checks, RED comparison."""
     from netmind.dashboard import ns2lab
     header("NS2 lab")
     st.caption("The NS2 Simulation Module: the scenario, its TCL code, how to run it, and the lab checks "
@@ -760,6 +786,7 @@ def page_ns2():
 
 
 def page_copilot():
+    """Copilot page: chat, suggestions, model and the exact prompt."""
     header("Copilot")
     cp = get_copilot()
     q = st.chat_input("Ask about this run, e.g. why did latency jump at 70 s?")
@@ -801,6 +828,7 @@ def page_copilot():
 
 
 def page_compare():
+    """Compare runs page: two runs side by side."""
     header("Compare runs")
     if len(run_ids) < 2:
         st.markdown('<div class="nm-empty">Create a second run to compare, for example a synthetic '
@@ -823,6 +851,7 @@ def page_compare():
 
 
 def page_data():
+    """Data & export page: downloads, raw tables, delete."""
     header("Data & export")
     st.markdown("### Download")
     c1, c2, c3, c4 = st.columns(4)

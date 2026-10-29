@@ -48,6 +48,7 @@ EVENT_COLS = ["ev", "t", "frm", "to", "type", "size", "flags", "fid", "src", "ds
 
 
 def _node(addr: str) -> int:
+    """Node number from an NS2 address like '3.0'."""
     return int(addr.split(".")[0])
 
 
@@ -94,10 +95,12 @@ def read_link_events(path: str) -> pd.DataFrame:
 
 
 def _events(path_or_events) -> pd.DataFrame:
+    """Accepts a trace path or an already-read events table."""
     return read_trace(path_or_events) if isinstance(path_or_events, str) else path_or_events
 
 
 def _data(ev: pd.DataFrame) -> pd.DataFrame:
+    """Keeps data packets (tcp, cbr...), drops routing and ack messages."""
     return ev[ev["type"].isin(DATA_TYPES)]
 
 
