@@ -237,7 +237,10 @@ with st.sidebar:
         st.markdown("**Synthetic demo**")
         st.toggle("Inject congestion, port scan and ping flood", value=True, key="demo_events")
         c1, c2 = st.columns(2)
-        c1.number_input("Seed", min_value=0, max_value=9999, value=7, step=1, key="demo_seed")
+        c1.number_input("Seed", min_value=0, max_value=9999, value=7, step=1, key="demo_seed",
+                       help="7 is the fixed demo used on the slides (problems at 70, 120 and 150 s). "
+                            "Any other seed moves the problems, changes their order and strength, and "
+                            "picks a different attacker.")
         c2.number_input("Seconds", min_value=60, max_value=600, value=180, step=20, key="demo_duration",
                        help="At least 60 s: the first third is used to learn what normal looks like")
         stretch(st.button, "Generate and analyse", on_click=cb_demo, type="primary", key="btn_demo")
