@@ -107,7 +107,8 @@ def cmd_demo(args):
         print(f"  {n:<11} t={s - t0:g}-{e - t0:g} s")
     db = _db(args)
     train = min(60.0, args.duration * 0.33)  # normal traffic before the first event at 70 s
-    run_id = analyze_packets(df, "Synthetic demo", "synthetic", db, train_until=train)
+    run_id = analyze_packets(df, f"Synthetic demo (seed {args.seed}, {args.duration:g} s)", "synthetic", db,
+                            train_until=train)
     _print_report(db, run_id)
     print(f"\nSaved as run {run_id} in {args.db}")
     print('Next:  python -m netmind ask "Why is the network slow?"')

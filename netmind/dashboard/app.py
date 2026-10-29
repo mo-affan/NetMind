@@ -138,7 +138,9 @@ def cb_demo():
     events = None if ss.get("demo_events", True) else []
     dur = float(ss.get("demo_duration", 180))
     recs, _ = generate_scenario(duration=dur, seed=int(ss.get("demo_seed", 7)), events=events)
-    name = "Synthetic demo" if events is None else "Synthetic normal traffic"
+    seed = int(ss.get("demo_seed", 7))
+    name = (f"Synthetic demo (seed {seed}, {dur:g} s)" if events is None
+            else f"Synthetic normal traffic (seed {seed}, {dur:g} s)")
     try:
         rid = analyze_packets(to_frame(recs), name, "synthetic", db, train_until=min(60.0, dur * 0.33))
         _select_new_run(rid, name)
